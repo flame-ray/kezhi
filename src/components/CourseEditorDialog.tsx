@@ -4,8 +4,14 @@ import { Icon } from "../ui/Icon";
 
 type WeekRule = "continuous" | "odd" | "even" | "custom";
 
+export interface CourseDraftSlot {
+  day: DayOfWeek;
+  startPeriod: number;
+}
+
 interface CourseEditorDialogProps {
   meeting?: CourseMeeting;
+  initialSlot?: CourseDraftSlot;
   maxPeriod: number;
   onSave: (meeting: CourseMeeting) => void;
   onDelete?: (id: string) => void;
@@ -14,15 +20,15 @@ interface CourseEditorDialogProps {
 
 const colors: CourseColor[] = ["blue", "teal", "coral", "violet", "rose", "amber", "indigo"];
 
-export function CourseEditorDialog({ meeting, maxPeriod, onSave, onDelete, onClose }: CourseEditorDialogProps) {
+export function CourseEditorDialog({ meeting, initialSlot, maxPeriod, onSave, onDelete, onClose }: CourseEditorDialogProps) {
   const initialRule = useMemo(() => detectWeekRule(meeting?.weeks ?? []), [meeting]);
   const [title, setTitle] = useState(meeting?.title ?? "");
   const [courseCode, setCourseCode] = useState(meeting?.courseCode ?? "");
   const [teacher, setTeacher] = useState(meeting?.teacher ?? "");
   const [location, setLocation] = useState(meeting?.location ?? "");
-  const [day, setDay] = useState<DayOfWeek>(meeting?.day ?? 1);
-  const [startPeriod, setStartPeriod] = useState(meeting?.startPeriod ?? 1);
-  const [endPeriod, setEndPeriod] = useState(meeting?.endPeriod ?? Math.min(2, maxPeriod));
+  const [day, setDay] = useState<DayOfWeek>(meeting?.day ?? initialSlot?.day ?? 1);
+  const [startPeriod, setStartPeriod] = useState(meeting?.startPeriod ?? initialSlot?.startPeriod ?? 1);
+  const [endPeriod, setEndPeriod] = useState(meeting?.endPeriod ?? Math.min((initialSlot?.startPeriod ?? 1) + 1, maxPeriod));
   const [weekRule, setWeekRule] = useState<WeekRule>(initialRule);
   const [weekStart, setWeekStart] = useState(Math.min(...(meeting?.weeks.length ? meeting.weeks : [1])));
   const [weekEnd, setWeekEnd] = useState(Math.max(...(meeting?.weeks.length ? meeting.weeks : [18])));
@@ -66,7 +72,7 @@ export function CourseEditorDialog({ meeting, maxPeriod, onSave, onDelete, onClo
     <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}>
       <section className="dialog course-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="course-editor-title" onMouseDown={(event) => event.stopPropagation()}>
         <header className="dialog-header">
-          <div><span className="eyebrow">{meeting ? "编辑课程" : "新建课程"}</span><h2 id="course-editor-title">{meeting?.title ?? "添加一门课程"}</h2></div>
+          <div><span className="eyebrow">{meeting ? "编辑课程" : initialSlot ? "从空白格添加" : "新建课程"}</span><h2 id="course-editor-title">{meeting?.title ?? "添加一门课程"}</h2></div>
           <button className="icon-button" onClick={onClose} aria-label="关闭"><Icon name="close" /></button>
         </header>
 

@@ -59,3 +59,11 @@ SQLite 模块位于 `src-tauri/src/database.rs`，其 interface 只提供加载/
 `启动课织.cmd` 是 Windows 双击入口：优先启动 Release EXE，没有成品时进入 Tauri 开发模式。`scripts/start.ts` 仍保留为纯浏览器预览入口，其服务只监听 `127.0.0.1`，不会暴露到局域网；浏览器预览不具备学校会话能力。
 
 `src/exporting/scheduleExport.ts` 是纯本地导出模块：ICS、CSV、JSON 和 SVG 都由内存中的统一课表模型生成，不上传数据。打印/PDF 使用 Windows 浏览器打印面板。
+
+## Android 平台模块
+
+- `src/platform/runtime.ts` 是平台能力 seam，只暴露运行平台、账号存储和教务登录能力；React 调用方不需要理解 WebView2、Android Activity 或浏览器差异。
+- Windows adapter 使用独立 WebView2 登录窗；Android 通过原生 Kotlin WebView 打开学校官方登录页，登录成功后由固定在顶部的按钮触发导入，Cookie 与密码不进入 React 层。
+- Android 与 Windows 复用 SQLite 账号档案、课表领域模型、同步差异算法和导出模型；移动端当前支持显式同步，后台周期同步仍只在 Windows 独立窗口模式开启。
+- `src-tauri/tauri.android.conf.json` 只保存 Android 包标识和 SDK 策略；生成的 Gradle/Kotlin 工程位于 `src-tauri/gen/android`。
+- Android 最低 API 24，compile/target SDK 36，NDK r28，并为 16 KB 内存页设备配置原生库对齐。

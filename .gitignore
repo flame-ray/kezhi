@@ -15,3 +15,7 @@ src-tauri/target/
 .vscode/
 Thumbs.db
 *.tsbuildinfo
+*.jks
+*.keystore
+key.properties
+keystore.properties

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { LocalAccountProfile } from "../domain/account";
 import type { ScheduleSnapshot } from "../domain/schedule";
+export { isTauriRuntime } from "./runtime";
 
 export interface SchoolLoginRequest {
   schoolId: string;
@@ -25,10 +26,6 @@ export interface ScheduleFetchRequest extends SchoolLoginRequest {
 
 export interface SchedulePayload {
   rows: unknown;
-}
-
-export function isTauriRuntime(): boolean {
-  return "__TAURI_INTERNALS__" in window;
 }
 
 export function openSchoolLogin(request: SchoolLoginRequest): Promise<LoginWindowInfo> {

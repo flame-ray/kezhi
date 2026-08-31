@@ -1,6 +1,6 @@
 # 课织（Kezhi）
 
-课织是一个面向 Windows 10/11 的本地优先大学课表应用。当前 0.2.0 版本已包含可运行的 Tauri 原生版和 NSIS 安装包：周课表、课程详情、拖放调整、多套作息、SQLite 本地持久化，以及宁德师范学院正方教务系统的原生登录与课表读取适配器。
+课织是一个面向 Windows 10/11 与 Android 的本地优先大学课表应用。当前 0.2.3 版本包含周课表、课程详情、跟手周翻页、长按空白格新增课程、亮暗主题、拖放调整、多套作息、SQLite 本地持久化，以及宁德师范学院正方教务系统的原生登录与课表读取适配器。
 
 首次启动默认是空课表，不附带任何虚构课程、学生或学校信息。用户完成教务导入或手动添加课程后才会创建课表数据。
 
@@ -13,6 +13,20 @@
 仓库当前已经生成可运行的 Release EXE 和未签名安装包；公开代码签名仍属于后续工作。
 
 无需开发环境的安装程序可从 [GitHub Releases](https://github.com/flame-ray/kezhi/releases) 下载。当前安装包尚未配置公开代码签名证书，Windows 可能显示“未知发布者”。
+
+### Android 开发版
+
+项目已生成 Tauri Android 原生工程，支持 Android 7.0（API 24）及以上版本。Android Studio、SDK 35/36、NDK r28 和 Rust Android targets 配置完成后，可双击 `启动课织安卓版.cmd`；脚本会检测已连接的真机/模拟器，并启动 Android 调试版。
+
+也可以使用命令：
+
+```bash
+bun run android:init
+bun run android:dev
+bun run android:build
+```
+
+Windows 上 Tauri 打包需要创建符号链接，因此必须在“设置 → 系统 → 开发者选项”中由用户明确开启开发人员模式。账号、课程和作息只保存在 Android 应用私有 SQLite 中；宁德师范学院已支持应用内官方网页登录，登录后点击顶部“登录完成，导入课表”即可读取课表，密码不会保存。
 
 ### 开发模式
 
@@ -36,6 +50,9 @@ bun build src/main.tsx --outdir dist-bun --target browser
 ## 设计原则
 
 - 学号、姓名和课程数据默认只保存在本机。
+- [x] 手机跟手滑动翻周、边界回弹与每日完整日期
+- [x] 亮色/暗色主题切换与本地记忆
+- [x] 长按空白课程格并预填星期、节次
 - 学校登录与解析通过适配器接入，课表界面只消费统一数据模型。
 - 本地修改与教务同步发生冲突时必须由用户确认。
 - 动画尊重系统的“减少动画”设置。
@@ -62,6 +79,12 @@ bun build src/main.tsx --outdir dist-bun --target browser
 - [x] 本地多账号档案迁移到 SQLite
 - [x] Windows NSIS 当前用户安装包
 - [x] Windows 双击一键启动
+- [x] Android 原生工程与手机响应式界面
+- [x] Android SQLite 多账号档案与旧数据迁移
+- [x] Android SDK 36 / NDK r28 / 16 KB 页面对齐
+- [x] Android 内置官方网页登录、明显导入按钮与手动同步
+- [x] Android arm64 测试签名 APK / GitHub 发布
+- [ ] Android 正式发行签名 / AAB 商店发布与后台自动同步
 - [x] ICS 日历导出
 - [x] CSV / Excel 兼容导出
 - [x] JSON 本地备份
@@ -80,8 +103,8 @@ bun build src/main.tsx --outdir dist-bun --target browser
 - 原生层固定校验 HTTPS 域名，不接受前端传入任意网址。
 - Cookie 值只在 Rust 原生层用于本次学校请求，不返回 React 界面、不写入日志。
 - 正方接口响应中的学生资料块会被丢弃，仅课程行进入本地解析器。
-- 不提供云同步，课程和账号备注保存在当前 Windows 设备。
-- 原生版使用 `%APPDATA%\app.kezhi.desktop\kezhi.sqlite3`；SQLite 保存失败时会回退到兼容存储并提示用户。
+- 不提供云同步，课程和账号备注仅保存在当前设备。
+- Windows 原生版使用 `%APPDATA%\app.kezhi.desktop\kezhi.sqlite3`，Android 使用应用私有数据库；SQLite 保存失败时会回退到兼容存储并提示用户。
 
 ## 同步行为
 

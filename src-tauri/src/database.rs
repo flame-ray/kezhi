@@ -55,6 +55,8 @@ pub(crate) struct Period {
 pub(crate) struct LocalAccountProfile {
     pub id: String,
     pub school_id: String,
+    #[serde(default)]
+    pub login_name: String,
     pub label: String,
     pub created_at: String,
 }
@@ -74,19 +76,26 @@ impl ScheduleStore {
             .busy_timeout(Duration::from_secs(3))
             .map_err(database_error)?;
         connection.execute_batch(SCHEMA).map_err(database_error)?;
+        migrate_schema(&connection)?;
         Ok(Self {
             connection: Mutex::new(connection),
         })
     }
 
     pub(crate) fn load(&self) -> Result<Option<ScheduleSnapshot>, String> {
-        let connection = self.connection.lock().map_err(|_| "本地数据库锁已损坏".to_string())?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| "本地数据库锁已损坏".to_string())?;
         load_snapshot(&connection)
     }
 
     pub(crate) fn save(&self, snapshot: &ScheduleSnapshot) -> Result<(), String> {
         validate_snapshot(snapshot)?;
-        let mut connection = self.connection.lock().map_err(|_| "本地数据库锁已损坏".to_string())?;
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| "本地数据库锁已损坏".to_string())?;
         let transaction = connection.transaction().map_err(database_error)?;
 
         transaction
@@ -119,7 +128,8 @@ impl ScheduleStore {
             .execute("DELETE FROM course_meetings", [])
             .map_err(database_error)?;
         for (position, course) in snapshot.courses.iter().enumerate() {
-            let weeks_json = serde_json::to_string(&course.weeks).map_err(|error| error.to_string())?;
+            let weeks_json =
+                serde_json::to_string(&course.weeks).map_err(|error| error.to_string())?;
             transaction
                 .execute(
                     "INSERT INTO course_meetings (
@@ -172,17 +182,21 @@ impl ScheduleStore {
     }
 
     pub(crate) fn load_accounts(&self) -> Result<Vec<LocalAccountProfile>, String> {
-        let connection = self.connection.lock().map_err(|_| "本地数据库锁已损坏".to_string())?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| "本地数据库锁已损坏".to_string())?;
         let mut statement = connection
-            .prepare("SELECT id, school_id, label, created_at FROM local_accounts ORDER BY created_at, id")
+            .prepare("SELECT id, school_id, login_name, label, created_at FROM local_accounts ORDER BY created_at, id")
             .map_err(database_error)?;
         let accounts = statement
             .query_map([], |row| {
                 Ok(LocalAccountProfile {
                     id: row.get(0)?,
                     school_id: row.get(1)?,
-                    label: row.get(2)?,
-                    created_at: row.get(3)?,
+                    login_name: row.get(2)?,
+                    label: row.get(3)?,
+                    created_at: row.get(4)?,
                 })
             })
             .map_err(database_error)?
@@ -193,20 +207,63 @@ impl ScheduleStore {
 
     pub(crate) fn save_account(&self, account: &LocalAccountProfile) -> Result<(), String> {
         validate_account(account)?;
-        let connection = self.connection.lock().map_err(|_| "本地数据库锁已损坏".to_string())?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| "本地数据库锁已损坏".to_string())?;
         connection
             .execute(
-                "INSERT INTO local_accounts (id, school_id, label, created_at)
-                 VALUES (?1, ?2, ?3, ?4)
+                "INSERT INTO local_accounts (id, school_id, login_name, label, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
                  ON CONFLICT(id) DO UPDATE SET
                     school_id = excluded.school_id,
+                    login_name = excluded.login_name,
                     label = excluded.label,
                     created_at = excluded.created_at",
-                params![account.id, account.school_id, account.label, account.created_at],
+                params![
+                    account.id,
+                    account.school_id,
+                    account.login_name,
+                    account.label,
+                    account.created_at
+                ],
             )
             .map_err(database_error)?;
         Ok(())
     }
+}
+
+fn migrate_schema(connection: &Connection) -> Result<(), String> {
+    let mut statement = connection
+        .prepare("PRAGMA table_info(local_accounts)")
+        .map_err(database_error)?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(database_error)?;
+    let mut has_login_name = false;
+    for column in columns {
+        if column.map_err(database_error)? == "login_name" {
+            has_login_name = true;
+            break;
+        }
+    }
+    drop(statement);
+
+    if !has_login_name {
+        connection
+            .execute(
+                "ALTER TABLE local_accounts ADD COLUMN login_name TEXT NOT NULL DEFAULT ''",
+                [],
+            )
+            .map_err(database_error)?;
+    }
+    connection
+        .execute(
+            "UPDATE schema_meta SET value = '2' WHERE key = 'schema_version'",
+            [],
+        )
+        .map_err(database_error)?;
+    Ok(())
 }
 
 fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, String> {
@@ -229,7 +286,16 @@ fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, St
         )
         .optional()
         .map_err(database_error)?;
-    let Some((active_preset_id, school_name, school_id, account_id, academic_year, semester, last_sync_at)) = state else {
+    let Some((
+        active_preset_id,
+        school_name,
+        school_id,
+        account_id,
+        academic_year,
+        semester,
+        last_sync_at,
+    )) = state
+    else {
         return Ok(None);
     };
 
@@ -262,7 +328,22 @@ fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, St
         .map_err(database_error)?;
     let mut courses = Vec::new();
     for row in course_rows {
-        let (id, course_code, title, teacher, location, day, start_period, end_period, weeks_json, color, status, note, source, source_key) = row.map_err(database_error)?;
+        let (
+            id,
+            course_code,
+            title,
+            teacher,
+            location,
+            day,
+            start_period,
+            end_period,
+            weeks_json,
+            color,
+            status,
+            note,
+            source,
+            source_key,
+        ) = row.map_err(database_error)?;
         let weeks = serde_json::from_str::<Vec<u8>>(&weeks_json)
             .map_err(|_| "本地数据库中的课程周次已损坏".to_string())?;
         courses.push(CourseMeeting {
@@ -287,7 +368,9 @@ fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, St
         .prepare("SELECT id, name FROM timetable_presets ORDER BY position")
         .map_err(database_error)?;
     let preset_rows = preset_statement
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
         .map_err(database_error)?;
     let mut presets = Vec::new();
     for row in preset_rows {
@@ -334,16 +417,30 @@ fn validate_snapshot(snapshot: &ScheduleSnapshot) -> Result<(), String> {
     if snapshot.presets.is_empty() || snapshot.presets.len() > 50 {
         return Err("作息方案数量无效".into());
     }
-    if !snapshot.presets.iter().any(|preset| preset.id == snapshot.active_preset_id) {
+    if !snapshot
+        .presets
+        .iter()
+        .any(|preset| preset.id == snapshot.active_preset_id)
+    {
         return Err("当前作息方案不存在".into());
     }
-    if snapshot.academic_year.is_some_and(|year| !(2000..=2100).contains(&year))
-        || snapshot.semester.is_some_and(|semester| !matches!(semester, 1 | 2))
+    if snapshot
+        .academic_year
+        .is_some_and(|year| !(2000..=2100).contains(&year))
+        || snapshot
+            .semester
+            .is_some_and(|semester| !matches!(semester, 1 | 2))
     {
         return Err("学年或学期无效".into());
     }
-    if snapshot.school_id.as_deref().is_some_and(|value| !safe_identifier(value))
-        || snapshot.account_id.as_deref().is_some_and(|value| !safe_identifier(value))
+    if snapshot
+        .school_id
+        .as_deref()
+        .is_some_and(|value| !safe_identifier(value))
+        || snapshot
+            .account_id
+            .as_deref()
+            .is_some_and(|value| !safe_identifier(value))
     {
         return Err("学校或账号标识无效".into());
     }
@@ -368,9 +465,17 @@ fn validate_snapshot(snapshot: &ScheduleSnapshot) -> Result<(), String> {
         {
             return Err(format!("课程“{}”的时间无效", course.title));
         }
-        if !matches!(course.color.as_str(), "blue" | "teal" | "coral" | "violet" | "rose" | "amber" | "indigo")
-            || course.status.as_deref().is_some_and(|value| !matches!(value, "normal" | "changed" | "cancelled"))
-            || course.source.as_deref().is_some_and(|value| !matches!(value, "local" | "school"))
+        if !matches!(
+            course.color.as_str(),
+            "blue" | "teal" | "coral" | "violet" | "rose" | "amber" | "indigo"
+        ) || course
+            .status
+            .as_deref()
+            .is_some_and(|value| !matches!(value, "normal" | "changed" | "cancelled"))
+            || course
+                .source
+                .as_deref()
+                .is_some_and(|value| !matches!(value, "local" | "school"))
         {
             return Err(format!("课程“{}”包含未知状态", course.title));
         }
@@ -403,6 +508,7 @@ fn validate_snapshot(snapshot: &ScheduleSnapshot) -> Result<(), String> {
 fn validate_account(account: &LocalAccountProfile) -> Result<(), String> {
     if !safe_identifier(&account.id)
         || !safe_identifier(&account.school_id)
+        || account.login_name.chars().count() > 80
         || !valid_text(&account.label, 40)
         || account.created_at.is_empty()
         || account.created_at.len() > 64
@@ -447,7 +553,7 @@ CREATE TABLE IF NOT EXISTS schema_meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('schema_version', '1');
+INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('schema_version', '2');
 
 CREATE TABLE IF NOT EXISTS schedule_state (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -495,6 +601,7 @@ CREATE TABLE IF NOT EXISTS timetable_periods (
 CREATE TABLE IF NOT EXISTS local_accounts (
     id TEXT PRIMARY KEY,
     school_id TEXT NOT NULL,
+    login_name TEXT NOT NULL DEFAULT '',
     label TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
@@ -526,8 +633,16 @@ mod tests {
                 id: "summer".into(),
                 name: "夏季作息".into(),
                 periods: vec![
-                    Period { index: 1, start: "08:20".into(), end: "09:05".into() },
-                    Period { index: 2, start: "09:10".into(), end: "09:55".into() },
+                    Period {
+                        index: 1,
+                        start: "08:20".into(),
+                        end: "09:05".into(),
+                    },
+                    Period {
+                        index: 2,
+                        start: "09:10".into(),
+                        end: "09:55".into(),
+                    },
                 ],
             }],
             active_preset_id: "summer".into(),
@@ -577,17 +692,43 @@ mod tests {
         let first = LocalAccountProfile {
             id: "account-1".into(),
             school_id: "ndnu".into(),
+            login_name: "20260001".into(),
             label: "主账号".into(),
             created_at: "2026-08-31T00:00:00.000Z".into(),
         };
         let second = LocalAccountProfile {
             id: "account-2".into(),
             school_id: "ndnu".into(),
+            login_name: "20260002".into(),
             label: "备用账号".into(),
             created_at: "2026-08-31T00:01:00.000Z".into(),
         };
         store.save_account(&first).unwrap();
         store.save_account(&second).unwrap();
         assert_eq!(store.load_accounts().unwrap(), vec![first, second]);
+    }
+
+    #[test]
+    fn migrates_legacy_account_profiles_without_losing_them() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE local_accounts (
+                    id TEXT PRIMARY KEY,
+                    school_id TEXT NOT NULL,
+                    label TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                 );
+                 INSERT INTO local_accounts (id, school_id, label, created_at)
+                 VALUES ('legacy-1', 'ndnu', 'legacy', '2026-08-31T00:00:00.000Z');",
+            )
+            .unwrap();
+
+        let store = ScheduleStore::from_connection(connection).unwrap();
+        let accounts = store.load_accounts().unwrap();
+        assert_eq!(accounts.len(), 1);
+        assert_eq!(accounts[0].id, "legacy-1");
+        assert_eq!(accounts[0].login_name, "");
+        assert_eq!(accounts[0].label, "legacy");
     }
 }

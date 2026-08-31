@@ -1,11 +1,18 @@
+#[cfg(target_os = "android")]
+mod android_login;
 mod database;
 
+#[cfg(target_os = "android")]
+use android_login::{AndroidSchoolLogin, OpenRequest as AndroidLoginOpenRequest};
 use database::{LocalAccountProfile, ScheduleSnapshot as StoredScheduleSnapshot, ScheduleStore};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::Manager;
+#[cfg(desktop)]
+use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 #[derive(Clone, Deserialize)]
+#[cfg_attr(mobile, allow(dead_code))]
 #[serde(rename_all = "camelCase")]
 struct SchoolLoginRequest {
     school_id: String,
@@ -28,6 +35,7 @@ struct LoginStatus {
 }
 
 #[derive(Clone, Deserialize)]
+#[cfg_attr(mobile, allow(dead_code))]
 #[serde(rename_all = "camelCase")]
 struct ScheduleFetchRequest {
     school_id: String,
@@ -116,12 +124,14 @@ fn checked_login_url(site: &SchoolSite) -> Result<tauri::Url, String> {
     Ok(url)
 }
 
+#[cfg(desktop)]
 fn window_label(request: &SchoolLoginRequest) -> Result<String, String> {
     let school_id = checked_identifier(&request.school_id, "学校")?;
     let account_id = checked_identifier(&request.account_id, "账号")?;
     Ok(format!("school-login-{school_id}-{account_id}"))
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 async fn open_school_login(
     app: tauri::AppHandle,
@@ -130,6 +140,7 @@ async fn open_school_login(
     create_login_window(&app, &request, true)
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 async fn prepare_school_session(
     app: tauri::AppHandle,
@@ -138,6 +149,7 @@ async fn prepare_school_session(
     create_login_window(&app, &request, false)
 }
 
+#[cfg(desktop)]
 fn create_login_window(
     app: &tauri::AppHandle,
     request: &SchoolLoginRequest,
@@ -147,9 +159,12 @@ fn create_login_window(
     let url = if interactive {
         checked_login_url(site)?
     } else {
-        format!("https://{}/jwglxt/xtgl/index_initMenu.html", site.allowed_host)
-            .parse::<tauri::Url>()
-            .map_err(|_| "学校会话检查地址无效".to_string())?
+        format!(
+            "https://{}/jwglxt/xtgl/index_initMenu.html",
+            site.allowed_host
+        )
+        .parse::<tauri::Url>()
+        .map_err(|_| "学校会话检查地址无效".to_string())?
     };
     let label = window_label(&request)?;
 
@@ -194,6 +209,7 @@ fn create_login_window(
     })
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 async fn school_login_status(
     app: tauri::AppHandle,
@@ -234,6 +250,7 @@ async fn school_login_status(
     })
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 async fn hide_school_login(
     app: tauri::AppHandle,
@@ -247,41 +264,31 @@ async fn hide_school_login(
     Ok(())
 }
 
-#[tauri::command]
-async fn fetch_school_schedule(
-    app: tauri::AppHandle,
-    request: ScheduleFetchRequest,
+async fn fetch_schedule_payload(
+    site: &SchoolSite,
+    request: &ScheduleFetchRequest,
+    cookie_header: String,
+    user_agent: &str,
 ) -> Result<SchedulePayload, String> {
-    let site = school_site(&request.school_id)?;
     if !(2000..=2100).contains(&request.academic_year) || !matches!(request.semester, 1 | 2) {
         return Err("学年或学期无效".into());
     }
 
-    let login_request = SchoolLoginRequest {
-        school_id: request.school_id.clone(),
-        account_id: request.account_id.clone(),
-    };
-    let label = window_label(&login_request)?;
-    let window = app
-        .get_webview_window(&label)
-        .ok_or_else(|| "登录窗口已关闭，请重新打开并登录".to_string())?;
     let endpoint = format!(
         "https://{}/jwglxt/kbcx/xskbcx_cxXsKb.html?gnmkdm=N2151",
         site.allowed_host
     )
     .parse::<tauri::Url>()
     .map_err(|_| "课表接口地址无效".to_string())?;
-    let cookies = window
-        .cookies_for_url(endpoint.clone())
-        .map_err(|error| error.to_string())?;
-    let cookie_header = cookies
-        .iter()
-        .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
-        .collect::<Vec<_>>()
-        .join("; ");
     if cookie_header.is_empty() {
         return Err("没有检测到登录会话，请重新登录".into());
     }
+    let referer = checked_login_url(site)?.to_string();
+    let user_agent = if user_agent.trim().is_empty() {
+        "Kezhi/0.2.3"
+    } else {
+        user_agent
+    };
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
@@ -292,8 +299,8 @@ async fn fetch_school_schedule(
     let response = client
         .post(endpoint.as_str())
         .header(reqwest::header::COOKIE, cookie_header)
-        .header(reqwest::header::REFERER, checked_login_url(site)?.as_str())
-        .header(reqwest::header::USER_AGENT, "Kezhi/0.1 WebView2")
+        .header(reqwest::header::REFERER, referer)
+        .header(reqwest::header::USER_AGENT, user_agent)
         .form(&[
             ("xnm", request.academic_year.to_string()),
             ("xqm", semester_code.to_string()),
@@ -325,9 +332,187 @@ async fn fetch_school_schedule(
     Ok(SchedulePayload { rows })
 }
 
+#[cfg(desktop)]
+#[tauri::command]
+async fn fetch_school_schedule(
+    app: tauri::AppHandle,
+    request: ScheduleFetchRequest,
+) -> Result<SchedulePayload, String> {
+    let site = school_site(&request.school_id)?;
+    let login_request = SchoolLoginRequest {
+        school_id: request.school_id.clone(),
+        account_id: request.account_id.clone(),
+    };
+    let label = window_label(&login_request)?;
+    let window = app
+        .get_webview_window(&label)
+        .ok_or_else(|| "登录窗口已关闭，请重新打开并登录".to_string())?;
+    let endpoint = format!(
+        "https://{}/jwglxt/kbcx/xskbcx_cxXsKb.html?gnmkdm=N2151",
+        site.allowed_host
+    )
+    .parse::<tauri::Url>()
+    .map_err(|_| "课表接口地址无效".to_string())?;
+    let cookies = window
+        .cookies_for_url(endpoint)
+        .map_err(|error| error.to_string())?;
+    let cookie_header = cookies
+        .iter()
+        .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
+        .collect::<Vec<_>>()
+        .join("; ");
+
+    fetch_schedule_payload(site, &request, cookie_header, "Kezhi/0.2.3 WebView2").await
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn open_school_login(
+    app: tauri::AppHandle,
+    request: SchoolLoginRequest,
+) -> Result<LoginWindowInfo, String> {
+    let site = school_site(&request.school_id)?;
+    let account_id = checked_identifier(&request.account_id, "账号")?;
+    let url = checked_login_url(site)?;
+    app.state::<AndroidSchoolLogin<tauri::Wry>>()
+        .open(AndroidLoginOpenRequest {
+            url: url.as_str(),
+            allowed_host: site.allowed_host,
+            account_id: &account_id,
+        })?;
+    Ok(LoginWindowInfo {
+        window_label: "android-school-login".into(),
+        reused: false,
+    })
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn prepare_school_session(
+    app: tauri::AppHandle,
+    request: SchoolLoginRequest,
+) -> Result<LoginWindowInfo, String> {
+    let site = school_site(&request.school_id)?;
+    let account_id = checked_identifier(&request.account_id, "账号")?;
+    let login = app.state::<AndroidSchoolLogin<tauri::Wry>>();
+    let status = login.status()?;
+    let reused = status.account_id == account_id && status.authenticated;
+    if !reused {
+        let url = checked_login_url(site)?;
+        login.open(AndroidLoginOpenRequest {
+            url: url.as_str(),
+            allowed_host: site.allowed_host,
+            account_id: &account_id,
+        })?;
+    }
+    Ok(LoginWindowInfo {
+        window_label: "android-school-login".into(),
+        reused,
+    })
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn school_login_status(
+    app: tauri::AppHandle,
+    request: SchoolLoginRequest,
+) -> Result<LoginStatus, String> {
+    let _ = school_site(&request.school_id)?;
+    let account_id = checked_identifier(&request.account_id, "账号")?;
+    let status = app.state::<AndroidSchoolLogin<tauri::Wry>>().status()?;
+    let same_account = status.account_id == account_id;
+    Ok(LoginStatus {
+        window_open: same_account && status.window_open,
+        authenticated: same_account && status.authenticated && !status.cookie_header.is_empty(),
+        session_cookie_count: if same_account && !status.cookie_header.is_empty() {
+            1
+        } else {
+            0
+        },
+    })
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn hide_school_login(
+    app: tauri::AppHandle,
+    request: SchoolLoginRequest,
+) -> Result<(), String> {
+    let _ = school_site(&request.school_id)?;
+    let _ = checked_identifier(&request.account_id, "账号")?;
+    app.state::<AndroidSchoolLogin<tauri::Wry>>().close()
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn fetch_school_schedule(
+    app: tauri::AppHandle,
+    request: ScheduleFetchRequest,
+) -> Result<SchedulePayload, String> {
+    let site = school_site(&request.school_id)?;
+    let account_id = checked_identifier(&request.account_id, "账号")?;
+    let status = app.state::<AndroidSchoolLogin<tauri::Wry>>().status()?;
+    if status.account_id != account_id || !status.authenticated || status.cookie_header.is_empty() {
+        return Err("登录会话不可用，请重新打开学校登录页".into());
+    }
+    fetch_schedule_payload(site, &request, status.cookie_header, &status.user_agent).await
+}
+
+#[cfg(target_os = "ios")]
+const MOBILE_LOGIN_UNAVAILABLE: &str = "iOS 版暂未接入学校登录";
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+async fn open_school_login(
+    _app: tauri::AppHandle,
+    _request: SchoolLoginRequest,
+) -> Result<LoginWindowInfo, String> {
+    Err(MOBILE_LOGIN_UNAVAILABLE.into())
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+async fn prepare_school_session(
+    _app: tauri::AppHandle,
+    _request: SchoolLoginRequest,
+) -> Result<LoginWindowInfo, String> {
+    Err(MOBILE_LOGIN_UNAVAILABLE.into())
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+async fn school_login_status(
+    _app: tauri::AppHandle,
+    _request: SchoolLoginRequest,
+) -> Result<LoginStatus, String> {
+    Err(MOBILE_LOGIN_UNAVAILABLE.into())
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+async fn hide_school_login(
+    _app: tauri::AppHandle,
+    _request: SchoolLoginRequest,
+) -> Result<(), String> {
+    Err(MOBILE_LOGIN_UNAVAILABLE.into())
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+async fn fetch_school_schedule(
+    _app: tauri::AppHandle,
+    _request: ScheduleFetchRequest,
+) -> Result<SchedulePayload, String> {
+    Err(MOBILE_LOGIN_UNAVAILABLE.into())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(android_login::init());
+
+    builder
         .setup(|app| {
             let data_directory = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_directory)?;
@@ -364,7 +549,10 @@ mod tests {
 
     #[test]
     fn only_catalogued_schools_can_open_a_login_window() {
-        assert_eq!(school_site("ndnu").unwrap().allowed_host, "jwgl.ndnu.edu.cn");
+        assert_eq!(
+            school_site("ndnu").unwrap().allowed_host,
+            "jwgl.ndnu.edu.cn"
+        );
         assert!(school_site("untrusted-school").is_err());
     }
 

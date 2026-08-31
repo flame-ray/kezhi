@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CourseDetails } from "./components/CourseDetails";
-import { CourseEditorDialog } from "./components/CourseEditorDialog";
+import { CourseEditorDialog, type CourseDraftSlot } from "./components/CourseEditorDialog";
 import { EmptySchedule } from "./components/EmptySchedule";
 import { ExportDialog } from "./components/ExportDialog";
 import { ImportWizard } from "./components/ImportWizard";
@@ -13,11 +13,14 @@ import type { CourseMeeting, DayOfWeek, ScheduleSnapshot, TimetablePreset } from
 import { activePreset, buildWeekView, formatWeekRange, moveMeeting } from "./domain/scheduleEngine";
 import { parseZhengfangSchedule } from "./importing/zhengfangAdapter";
 import { fetchSchoolSchedule, getSchoolLoginStatus, isTauriRuntime, loadScheduleSnapshot, prepareSchoolSession, saveScheduleSnapshot } from "./platform/tauriBridge";
+import { getRuntimeCapabilities } from "./platform/runtime";
 import { applyScheduleSyncPlan, createScheduleSyncPlan, type ScheduleSyncPlan, type SyncChoice } from "./sync/scheduleSync";
 import { Icon } from "./ui/Icon";
 
 const STORAGE_KEY = "kezhi.schedule.prototype.v2";
+const THEME_KEY = "kezhi.appearance.theme";
 const TERM_START = new Date(2026, 7, 31);
+type AppTheme = "light" | "dark";
 
 function initialSnapshot(): ScheduleSnapshot {
   try {
@@ -29,6 +32,16 @@ function initialSnapshot(): ScheduleSnapshot {
   return { courses: [], presets: defaultPresets, activePresetId: "summer" };
 }
 
+function initialTheme(): AppTheme {
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === "light" || saved === "dark") return saved;
+  } catch {
+    // Appearance preference can safely fall back to the system setting.
+  }
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
 export function App() {
   const [snapshot, setSnapshot] = useState<ScheduleSnapshot>(initialSnapshot);
   const [week, setWeek] = useState(1);
@@ -37,15 +50,20 @@ export function App() {
   const [timetableOpen, setTimetableOpen] = useState(false);
   const [editingCourse, setEditingCourse] = useState<CourseMeeting | "new">();
   const [importOpen, setImportOpen] = useState(false);
+  const [newCourseSlot, setNewCourseSlot] = useState<CourseDraftSlot>();
   const [exportOpen, setExportOpen] = useState(false);
   const [syncPlan, setSyncPlan] = useState<ScheduleSyncPlan>();
   const [toast, setToast] = useState<string>();
   const [syncing, setSyncing] = useState(false);
   const [storageBackend, setStorageBackend] = useState<"loading" | "sqlite" | "local">(() => isTauriRuntime() ? "loading" : "local");
+  const [theme, setTheme] = useState<AppTheme>(initialTheme);
   const syncInFlight = useRef(false);
+  const capabilities = getRuntimeCapabilities();
 
   const view = useMemo(() => buildWeekView(snapshot.courses, TERM_START, week), [snapshot.courses, week]);
   const preset = activePreset(snapshot);
+  const previousView = useMemo(() => buildWeekView(snapshot.courses, TERM_START, Math.max(1, week - 1)), [snapshot.courses, week]);
+  const nextView = useMemo(() => buildWeekView(snapshot.courses, TERM_START, Math.min(24, week + 1)), [snapshot.courses, week]);
   const selected = snapshot.courses.find((course) => course.id === selectedId && course.weeks.includes(week));
   const hasCourses = snapshot.courses.length > 0;
   const isLocalSchedule = snapshot.schoolName === "本地课表";
@@ -53,8 +71,19 @@ export function App() {
     ? `${snapshot.academicYear}–${snapshot.academicYear + 1} 第${snapshot.semester === 1 ? "一" : "二"}学期`
     : "尚未选择学期";
 
+  useLayoutEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    try {
+      localStorage.setItem(THEME_KEY, theme);
+    } catch {
+      // The active theme still applies even if storage is unavailable.
+    }
+  }, [theme]);
+
   useEffect(() => {
     if (!isTauriRuntime()) return;
+
     let cancelled = false;
     const initializeStorage = async () => {
       try {
@@ -122,8 +151,11 @@ export function App() {
       }
       return;
     }
-    if (!isTauriRuntime()) {
-      if (interactive) setToast("自动同步仅在 Windows 原生版中可用");
+    if (capabilities.schoolLogin === "unavailable") {
+      if (interactive) {
+        setImportOpen(true);
+        setToast("当前环境不支持学校安全登录，请使用 Windows 或 Android 原生版");
+      }
       return;
     }
     syncInFlight.current = true;
@@ -132,13 +164,15 @@ export function App() {
       const loginRequest = { schoolId: snapshot.schoolId, accountId: snapshot.accountId };
       await prepareSchoolSession(loginRequest);
       let authenticated = false;
-      for (let attempt = 0; attempt < 4; attempt += 1) {
+      const attempts = capabilities.schoolLogin === "embedded-window" ? 180 : 4;
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
         await delay(650);
         const status = await getSchoolLoginStatus(loginRequest);
         if (status.authenticated) {
           authenticated = true;
           break;
         }
+        if (!status.windowOpen) break;
       }
       if (!authenticated) {
         if (interactive) {
@@ -178,6 +212,7 @@ export function App() {
 
   useEffect(() => {
     if (storageBackend === "loading") return;
+    if (capabilities.schoolLogin !== "separate-window") return;
     if (!snapshot.schoolId || !snapshot.accountId || !snapshot.academicYear || !snapshot.semester) return;
     const lastSync = snapshot.lastSyncAt ? Date.parse(snapshot.lastSyncAt) : 0;
     const stale = !Number.isFinite(lastSync) || Date.now() - lastSync >= 15 * 60 * 1000;
@@ -205,6 +240,7 @@ export function App() {
       };
     });
     setEditingCourse(undefined);
+    setNewCourseSlot(undefined);
     setSelectedId(meeting.id);
     setToast("课程已保存到本机");
   };
@@ -212,6 +248,7 @@ export function App() {
   const deleteCourse = (id: string) => {
     setSnapshot((current) => ({ ...current, courses: current.courses.filter((course) => course.id !== id) }));
     setEditingCourse(undefined);
+    setNewCourseSlot(undefined);
     setSelectedId(undefined);
     setToast("课程已删除");
   };
@@ -243,8 +280,15 @@ export function App() {
     setSnapshot((current) => ({ ...current, presets: [...current.presets, copy], activePresetId: copy.id }));
   };
 
+  const openNewCourse = (slot?: CourseDraftSlot) => {
+    setSelectedId(undefined);
+    setNewCourseSlot(slot);
+    setEditingCourse("new");
+  };
+
   return (
     <div className="app-shell">
+
       <Sidebar
         active="课表"
         schoolName={snapshot.schoolName}
@@ -261,10 +305,11 @@ export function App() {
             </div>
           </div>
           <div className="top-actions">
-            <button className="soft-button" onClick={() => hasCourses ? setExportOpen(true) : setToast("请先导入或手动添加课程")}><Icon name="download" />导出</button>
+            <button className="soft-button export-action" onClick={() => hasCourses ? setExportOpen(true) : setToast("请先导入或手动添加课程")}><Icon name="download" />导出</button>
             <button className="soft-button" onClick={() => setImportOpen(true)}><Icon name="upload" />导入</button>
-            <button className={`soft-button ${syncing ? "syncing" : ""}`} disabled={syncing} onClick={() => void handleSync()}><Icon name="refresh" />{syncing ? "同步中" : "同步"}</button>
-            <button className="primary-button" onClick={() => setEditingCourse("new")}><Icon name="plus" />新建课程</button>
+            <button className={`soft-button sync-action ${syncing ? "syncing" : ""}`} disabled={syncing} onClick={() => void handleSync()}><Icon name="refresh" />{syncing ? "同步中" : "同步"}</button>
+            <button className="soft-button theme-toggle" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={theme === "dark" ? "切换亮色主题" : "切换暗色主题"} title={theme === "dark" ? "切换亮色主题" : "切换暗色主题"}><Icon name={theme === "dark" ? "sun" : "moon"} /><span>{theme === "dark" ? "亮色" : "暗色"}</span></button>
+            <button className="primary-button" onClick={() => openNewCourse()}><Icon name="plus" />新建课程</button>
           </div>
         </header>
 
@@ -285,16 +330,22 @@ export function App() {
           <section className="calendar-panel">
             <WeekCalendar
               view={view}
+              previousView={previousView}
+              nextView={nextView}
               preset={preset}
               selectedId={selectedId}
               direction={direction}
+              canGoPrevious={week > 1}
+              canGoNext={week < 24}
               onSelect={(meeting: CourseMeeting) => setSelectedId(meeting.id)}
               onMove={handleMove}
+              onCreate={(day, startPeriod) => openNewCourse({ day, startPeriod })}
+              onChangeWeek={(delta) => changeWeek(week + delta)}
             />
             {!hasCourses && (
-              <EmptySchedule onImport={() => setImportOpen(true)} onCreate={() => setEditingCourse("new")} />
+              <EmptySchedule onImport={() => setImportOpen(true)} onCreate={() => openNewCourse()} />
             )}
-            <div className="calendar-hint"><span className="hint-dot" />拖动课程可临时调整时间；本地修改不会被自动同步静默覆盖。</div>
+            <div className="calendar-hint"><span className="hint-dot" />左右滑动切换周次 · 长按空白格添加课程 · 拖动课程可调整时间</div>
           </section>
           <CourseDetails meeting={selected} preset={preset} onClose={() => setSelectedId(undefined)} onEdit={() => selected && setEditingCourse(selected)} />
         </div>
@@ -314,10 +365,14 @@ export function App() {
       {editingCourse && (
         <CourseEditorDialog
           meeting={editingCourse === "new" ? undefined : editingCourse}
+          initialSlot={editingCourse === "new" ? newCourseSlot : undefined}
           maxPeriod={preset.periods.length}
           onSave={saveCourse}
           onDelete={editingCourse === "new" ? undefined : deleteCourse}
-          onClose={() => setEditingCourse(undefined)}
+          onClose={() => {
+            setEditingCourse(undefined);
+            setNewCourseSlot(undefined);
+          }}
         />
       )}
 
@@ -325,6 +380,10 @@ export function App() {
         <ImportWizard
           activeAccountId={snapshot.accountId}
           onClose={() => setImportOpen(false)}
+          onStartManual={() => {
+            setImportOpen(false);
+            openNewCourse();
+          }}
           onRestore={(restored) => {
             setSnapshot(restored);
             setImportOpen(false);

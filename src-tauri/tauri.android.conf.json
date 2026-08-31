@@ -1,0 +1,22 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "\u8bfe\u7ec7",
+  "identifier": "app.kezhi.android",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "\u8bfe\u7ec7"
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png"],
+    "android": {
+      "minSdkVersion": 24,
+      "versionCode": 2003
+    }
+  }
+}

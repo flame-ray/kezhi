@@ -7,7 +7,9 @@ function loadLegacyAccounts(): LocalAccountProfile[] {
   try {
     const value = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]") as unknown;
     if (!Array.isArray(value)) return [];
-    return value.filter(isAccountProfile);
+    return value
+      .map(normalizeAccount)
+      .filter((account): account is LocalAccountProfile => account !== undefined);
   } catch {
     return [];
   }
@@ -22,10 +24,11 @@ export async function loadLocalAccounts(): Promise<LocalAccountProfile[]> {
   return legacy;
 }
 
-export async function createLocalAccount(schoolId: string, label: string): Promise<LocalAccountProfile> {
+export async function createLocalAccount(schoolId: string, loginName: string, label = loginName): Promise<LocalAccountProfile> {
   const profile: LocalAccountProfile = {
     id: crypto.randomUUID(),
     schoolId,
+    loginName: loginName.trim().slice(0, 80),
     label: label.trim().slice(0, 40) || "账号 1",
     createdAt: new Date().toISOString(),
   };
@@ -38,12 +41,23 @@ export async function createLocalAccount(schoolId: string, label: string): Promi
   return profile;
 }
 
-function isAccountProfile(value: unknown): value is LocalAccountProfile {
-  if (!value || typeof value !== "object") return false;
+function normalizeAccount(value: unknown): LocalAccountProfile | undefined {
+  if (!value || typeof value !== "object") return undefined;
   const account = value as Partial<LocalAccountProfile>;
-  return typeof account.id === "string"
-    && /^[a-zA-Z0-9_-]{1,64}$/.test(account.id)
-    && typeof account.schoolId === "string"
-    && typeof account.label === "string"
-    && typeof account.createdAt === "string";
+  if (
+    typeof account.id !== "string"
+    || !/^[a-zA-Z0-9_-]{1,64}$/.test(account.id)
+    || typeof account.schoolId !== "string"
+    || typeof account.label !== "string"
+    || typeof account.createdAt !== "string"
+  ) {
+    return undefined;
+  }
+  return {
+    id: account.id,
+    schoolId: account.schoolId,
+    loginName: typeof account.loginName === "string" ? account.loginName.slice(0, 80) : "",
+    label: account.label,
+    createdAt: account.createdAt,
+  };
 }

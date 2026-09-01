@@ -4,6 +4,8 @@ import { Icon } from "../ui/Icon";
 interface TimetableDialogProps {
   presets: TimetablePreset[];
   activeId: string;
+  termStartsOn: string;
+  onTermStartChange: (value: string) => void;
   onActivate: (id: string) => void;
   onChange: (preset: TimetablePreset) => void;
   onCreate: () => void;
@@ -13,6 +15,8 @@ interface TimetableDialogProps {
 export function TimetableDialog({
   presets,
   activeId,
+  termStartsOn,
+  onTermStartChange,
   onActivate,
   onChange,
   onCreate,
@@ -28,7 +32,16 @@ export function TimetableDialog({
           <button className="icon-button" onClick={onClose}><Icon name="close" /></button>
         </header>
 
+        <div className="term-date-setting">
+          <div><strong>第 1 周周一</strong><span>周次、每日日期和日历导出都以此为准</span></div>
+          <label>
+            <Icon name="calendar" />
+            <input type="date" value={termStartsOn} onChange={(event) => onTermStartChange(event.target.value)} />
+          </label>
+        </div>
+
         <div className="preset-tabs">
+
           {presets.map((preset) => (
             <button className={preset.id === activeId ? "active" : ""} key={preset.id} onClick={() => onActivate(preset.id)}>{preset.name}</button>
           ))}

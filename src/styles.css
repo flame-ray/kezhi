@@ -73,7 +73,8 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79, 99, 217,
 .icon-button { display: inline-grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; color: #626773; background: transparent; transition: background .16s ease, transform .16s ease; }
 .icon-button:hover { background: #e9ebf2; transform: scale(1.04); }
 .today-button { height: 36px; padding: 0 14px; color: #4f5460; background: white; box-shadow: inset 0 0 0 1px var(--outline); }
-.week-date { display: flex; align-items: baseline; gap: 10px; margin-left: 5px; }
+.week-date { display: flex; align-items: baseline; gap: 10px; margin-left: 5px; padding: 4px 7px; border-radius: 9px; color: inherit; background: transparent; }
+.week-date:hover { background: var(--surface-soft); }
 .week-date strong { font-size: 16px; }
 .week-date span { color: var(--muted); font-size: 12px; }
 .preset-button { height: 38px; padding: 0 12px; color: #4e5360; background: white; box-shadow: inset 0 0 0 1px var(--outline); }
@@ -189,6 +190,13 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79, 99, 217,
 .dialog-header { display: flex; justify-content: space-between; padding: 24px 26px 18px; }
 .eyebrow { color: var(--primary); font-size: 10px; font-weight: 750; letter-spacing: .1em; }
 .dialog-header h2 { margin: 5px 0 0; font-size: 21px; }
+.term-date-setting { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 26px 16px; padding: 13px 15px; border-radius: 13px; background: #f5f6fa; }
+.term-date-setting > div { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.term-date-setting strong { font-size: 12px; }
+.term-date-setting span { color: #9296a1; font-size: 9px; }
+.term-date-setting label { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; }
+.term-date-setting svg { width: 15px; color: var(--primary); }
+.term-date-setting input { height: 36px; padding: 0 9px; border: 1px solid #dfe2ea; border-radius: 9px; color: #343945; background: white; }
 .preset-tabs { display: flex; gap: 7px; padding: 0 26px 17px; overflow-x: auto; border-bottom: 1px solid var(--outline); }
 .preset-tabs button { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; height: 33px; padding: 0 12px; border-radius: 10px; color: #707580; background: #f0f2f7; }
 .preset-tabs button.active { color: #3447ba; font-weight: 650; background: #e6eaff; }
@@ -320,7 +328,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79, 99, 217,
 .login-error { align-items: flex-start; line-height: 1.45; }
 .analysis-checks .pending { color: #896125; background: #fff0d1; }
 .connection-stage > p { max-width: 520px; line-height: 1.65; }
-.term-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; width: min(360px, 100%); margin-top: 20px; text-align: left; }
+.term-fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; width: min(520px, 100%); margin-top: 20px; text-align: left; }
 .term-fields label { display: flex; flex-direction: column; gap: 6px; }
 .term-fields span { color: #6e7380; font-size: 9px; font-weight: 700; }
 .term-fields input, .term-fields select { height: 38px; padding: 0 10px; border: 1px solid #dfe2ea; border-radius: 10px; color: #343945; outline: none; background: white; }
@@ -566,7 +574,8 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79, 99, 217,
   .period-editor-row label { display: block; }
   .period-editor-row label span { display: none; }
   .period-editor-row input { width: 100%; }
-  .term-fields { width: 100%; }
+  .term-fields { width: 100%; grid-template-columns: 1fr; }
+  .term-date-setting { align-items: stretch; flex-direction: column; margin-inline: 16px; }
   .review-summary > span { padding: 14px 6px; }
   .toast {
     right: 12px;
@@ -603,6 +612,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79, 99, 217,
 :root[data-theme="dark"] .dialog { background: #202126; }
 :root[data-theme="dark"] .field input, :root[data-theme="dark"] .field select, :root[data-theme="dark"] .field textarea, :root[data-theme="dark"] .school-search, :root[data-theme="dark"] .school-url-box, :root[data-theme="dark"] .school-row { color: #e7e9ef; border-color: #3a3c45; background: #27292f; color-scheme: dark; }
 :root[data-theme="dark"] .field input:focus, :root[data-theme="dark"] .field select:focus, :root[data-theme="dark"] .field textarea:focus, :root[data-theme="dark"] .school-row.selected { background: #2a2d3c; }
+:root[data-theme="dark"] .term-date-setting { background: #282a31; }
 :root[data-theme="dark"] .rule-tabs, :root[data-theme="dark"] .wizard-note, :root[data-theme="dark"] .sync-overview, :root[data-theme="dark"] .review-summary > span { background: #282a31; }
 :root[data-theme="dark"] .rule-tabs button.active { color: #c3caff; background: #373a45; }
 :root[data-theme="dark"] .school-search input, :root[data-theme="dark"] .school-url-box input, :root[data-theme="dark"] .preset-title-row input { color: #eceef4; }
@@ -618,6 +628,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79, 99, 217,
 :root[data-theme="dark"] .security-copy span { color: #83aaa5; }
 :root[data-theme="dark"] .account-session-field select, :root[data-theme="dark"] .account-session-field input { color: #eceef4; border-color: #3a3c45; background: #27292f; color-scheme: dark; }
 :root[data-theme="dark"] .saved-account-name { color: #b7bac4; background: #2a2c33; }
+:root[data-theme="dark"] .term-date-setting input { color: #eceef4; border-color: #3a3c45; background: #212228; color-scheme: dark; }
 :root[data-theme="dark"] .term-fields input, :root[data-theme="dark"] .term-fields select { color: #eceef4; border-color: #3a3c45; background: #27292f; color-scheme: dark; }
 :root[data-theme="dark"] .change-card, :root[data-theme="dark"] .version-choices label, :root[data-theme="dark"] .import-option { border-color: #393b44; }
 :root[data-theme="dark"] .version-choices label.selected { background: #2e334f; }

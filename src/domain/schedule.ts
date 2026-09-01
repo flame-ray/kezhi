@@ -59,5 +59,6 @@ export interface ScheduleSnapshot {
   accountId?: string;
   academicYear?: number;
   semester?: 1 | 2;
+  termStartsOn?: string;
   lastSyncAt?: string;
 }

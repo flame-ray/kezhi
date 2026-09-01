@@ -1766,7 +1766,7 @@ dependencies = [
 
 [[package]]
 name = "kezhi"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "reqwest 0.12.28",
  "rusqlite",

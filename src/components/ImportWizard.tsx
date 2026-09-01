@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { LocalAccountProfile } from "../domain/account";
 import type { CourseMeeting, ScheduleSnapshot } from "../domain/schedule";
+import { normalizeTermStartKey, suggestTermStartKey } from "../domain/termDate";
 import { createLocalAccount, loadLocalAccounts } from "../importing/accountStore";
 import { parseScheduleBackup } from "../importing/backupImport";
 import { resolveSchoolLoginUrl, schoolCatalog, type SchoolDefinition } from "../importing/schoolCatalog";
@@ -16,7 +17,7 @@ interface ImportWizardProps {
     account: LocalAccountProfile,
     courses: CourseMeeting[],
     keepLocal: boolean,
-    term: { academicYear: number; semester: 1 | 2 },
+    term: { academicYear: number; semester: 1 | 2; termStartsOn: string },
   ) => void;
   onRestore: (snapshot: ScheduleSnapshot) => void;
   onStartManual: () => void;
@@ -38,11 +39,13 @@ export function ImportWizard({ activeAccountId, onImported, onRestore, onStartMa
   const [activeAccount, setActiveAccount] = useState<LocalAccountProfile>();
   const [loginState, setLoginState] = useState<LoginState>("idle");
   const [loginError, setLoginError] = useState<string>();
-  const [academicYear, setAcademicYear] = useState(() => {
+  const initialAcademicYear = useMemo(() => {
     const today = new Date();
     return today.getMonth() >= 6 ? today.getFullYear() : today.getFullYear() - 1;
-  });
+  }, []);
+  const [academicYear, setAcademicYear] = useState(initialAcademicYear);
   const [semester, setSemester] = useState<1 | 2>(1);
+  const [termStartsOn, setTermStartsOn] = useState(() => suggestTermStartKey(initialAcademicYear, 1));
   const [analyzing, setAnalyzing] = useState(false);
   const [readError, setReadError] = useState<string>();
   const [adapterResult, setAdapterResult] = useState<ScheduleAdapterResult>();
@@ -275,7 +278,7 @@ export function ImportWizard({ activeAccountId, onImported, onRestore, onStartMa
           </div>}
 
           {step === 3 && manualImportFlow && <div className="android-import-stage"><span className="analyze-orbit"><Icon name="upload" /></span><h3>账号已保存，继续导入课表</h3><p>可以恢复课织 JSON 备份，或直接进入课表手动添加课程。</p><input ref={fileInput} className="hidden-file-input" type="file" accept="application/json,.json" onChange={(event) => void restoreBackup(event.target.files?.[0])} /><div className="android-import-actions"><button className="restore-backup-button" onClick={() => fileInput.current?.click()}><Icon name="upload" /><span><strong>从课织备份恢复</strong><small>选择此前导出的 JSON 文件</small></span><Icon name="chevron-right" /></button><button className="restore-backup-button manual-import-button" onClick={onStartManual}><Icon name="plus" /><span><strong>手动添加课程</strong><small>从第一门课程开始创建本地课表</small></span><Icon name="chevron-right" /></button></div>{restoreError && <div className="form-error restore-error"><Icon name="warning" />{restoreError}</div>}</div>}
-          {step === 3 && !manualImportFlow && <div className="analyze-stage"><span className={`analyze-orbit ${analyzing ? "running" : ""}`}><Icon name="calendar" /></span><h3>{analyzing ? "正在读取学校课表…" : "选择要读取的学期"}</h3><p>{analyzing ? "正在通过本机登录会话读取课程、周次、教师和教室。" : "学年填写开始年份，例如 2026–2027 学年填写 2026。"}</p><div className="term-fields"><label><span>学年</span><input type="number" min={2000} max={2100} value={academicYear} disabled={analyzing} onChange={(event) => setAcademicYear(Number(event.target.value))} /></label><label><span>学期</span><select value={semester} disabled={analyzing} onChange={(event) => setSemester(Number(event.target.value) as 1 | 2)}><option value={1}>第一学期</option><option value={2}>第二学期</option></select></label></div><div className="analysis-checks"><span><Icon name="check" />官方域名已校验</span><span><Icon name="check" />独立会话已建立</span><span className={analyzing ? "checking" : "pending"}><Icon name="refresh" />{analyzing ? "正在解析" : "等待读取"}</span></div>{readError && <div className="form-error read-error"><Icon name="warning" />{readError}</div>}</div>}
+          {step === 3 && !manualImportFlow && <div className="analyze-stage"><span className={`analyze-orbit ${analyzing ? "running" : ""}`}><Icon name="calendar" /></span><h3>{analyzing ? "正在读取学校课表…" : "选择学期和第 1 周日期"}</h3><p>{analyzing ? "正在通过本机登录会话读取课程、周次、教师和教室。" : "请确认第 1 周周一，课表上的每一天都将据此计算。"}</p><div className="term-fields"><label><span>学年</span><input type="number" min={2000} max={2100} value={academicYear} disabled={analyzing} onChange={(event) => { const value = Number(event.target.value); setAcademicYear(value); setTermStartsOn(suggestTermStartKey(value, semester)); }} /></label><label><span>学期</span><select value={semester} disabled={analyzing} onChange={(event) => { const value = Number(event.target.value) as 1 | 2; setSemester(value); setTermStartsOn(suggestTermStartKey(academicYear, value)); }}><option value={1}>第一学期</option><option value={2}>第二学期</option></select></label><label><span>第 1 周周一</span><input type="date" value={termStartsOn} disabled={analyzing} onChange={(event) => setTermStartsOn(normalizeTermStartKey(event.target.value))} /></label></div><div className="analysis-checks"><span><Icon name="check" />官方域名已校验</span><span><Icon name="check" />日期可稍后修改</span><span className={analyzing ? "checking" : "pending"}><Icon name="refresh" />{analyzing ? "正在解析" : "等待读取"}</span></div>{readError && <div className="form-error read-error"><Icon name="warning" />{readError}</div>}</div>}
 
           {step === 4 && adapterResult && <div className="import-review"><div className="review-summary"><span><strong>{adapterResult.courses.length}</strong><small>课程记录</small></span><span><strong>{new Set(adapterResult.courses.map((course) => course.title)).size}</strong><small>不同课程</small></span><span><strong>{adapterResult.warnings.length}</strong><small>解析提醒</small></span></div><div className="review-success"><Icon name="check" /><div><strong>已读取真实教务数据</strong><span>共检查 {adapterResult.sourceRows} 条学校记录，已识别星期、节次和周次规则。</span></div></div>{adapterResult.warnings.length > 0 && <div className="review-warning"><Icon name="warning" /><div><strong>{adapterResult.warnings.length} 项记录被跳过</strong><span>{adapterResult.warnings[0]}</span></div></div>}<label className="import-option"><input type="checkbox" checked={keepLocal} onChange={(event) => setKeepLocal(event.target.checked)} /><span><strong>保留本地课程</strong><small>关闭后将使用本次读取的学校课表替换当前课程</small></span></label></div>}
         </div>
@@ -290,7 +293,7 @@ export function ImportWizard({ activeAccountId, onImported, onRestore, onStartMa
           {step === 2 && loginState === "connected" && <button className="primary-button" onClick={() => setStep(3)}>继续<Icon name="arrow-right" /></button>}
           {step === 3 && manualImportFlow && <button className="primary-button" onClick={onStartManual}>手动添加课程<Icon name="arrow-right" /></button>}
           {step === 3 && !manualImportFlow && activeAccount && <button className="primary-button" disabled={analyzing || academicYear < 2000 || academicYear > 2100} onClick={() => void readSchedule()}>{analyzing ? "读取中…" : "读取课表"}</button>}
-          {step === 4 && activeAccount && adapterResult && <button className="primary-button" onClick={() => onImported(school, activeAccount, adapterResult.courses, keepLocal, { academicYear, semester })}>确认导入</button>}
+          {step === 4 && activeAccount && adapterResult && <button className="primary-button" onClick={() => onImported(school, activeAccount, adapterResult.courses, keepLocal, { academicYear, semester, termStartsOn })}>确认导入</button>}
         </footer>
       </section>
     </div>

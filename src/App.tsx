@@ -11,6 +11,7 @@ import { WeekCalendar } from "./components/WeekCalendar";
 import { defaultPresets } from "./data/demo";
 import type { CourseMeeting, DayOfWeek, ScheduleSnapshot, TimetablePreset } from "./domain/schedule";
 import { activePreset, buildWeekView, formatWeekRange, moveMeeting } from "./domain/scheduleEngine";
+import { DEFAULT_TERM_START_KEY, normalizeTermStartKey, resolveTermStartDate } from "./domain/termDate";
 import { parseZhengfangSchedule } from "./importing/zhengfangAdapter";
 import { fetchSchoolSchedule, getSchoolLoginStatus, isTauriRuntime, loadScheduleSnapshot, prepareSchoolSession, saveScheduleSnapshot } from "./platform/tauriBridge";
 import { getRuntimeCapabilities } from "./platform/runtime";
@@ -19,17 +20,19 @@ import { Icon } from "./ui/Icon";
 
 const STORAGE_KEY = "kezhi.schedule.prototype.v2";
 const THEME_KEY = "kezhi.appearance.theme";
-const TERM_START = new Date(2026, 7, 31);
+function normalizeSnapshot(snapshot: ScheduleSnapshot): ScheduleSnapshot {
+  return { ...snapshot, termStartsOn: normalizeTermStartKey(snapshot.termStartsOn) };
+}
 type AppTheme = "light" | "dark";
 
 function initialSnapshot(): ScheduleSnapshot {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) return JSON.parse(saved) as ScheduleSnapshot;
+    if (saved) return normalizeSnapshot(JSON.parse(saved) as ScheduleSnapshot);
   } catch {
     // A corrupt prototype snapshot should never prevent the app from opening.
   }
-  return { courses: [], presets: defaultPresets, activePresetId: "summer" };
+  return { courses: [], presets: defaultPresets, activePresetId: "summer", termStartsOn: DEFAULT_TERM_START_KEY };
 }
 
 function initialTheme(): AppTheme {
@@ -60,10 +63,11 @@ export function App() {
   const syncInFlight = useRef(false);
   const capabilities = getRuntimeCapabilities();
 
-  const view = useMemo(() => buildWeekView(snapshot.courses, TERM_START, week), [snapshot.courses, week]);
+  const termStartsOn = useMemo(() => resolveTermStartDate(snapshot.termStartsOn), [snapshot.termStartsOn]);
+  const view = useMemo(() => buildWeekView(snapshot.courses, termStartsOn, week), [snapshot.courses, termStartsOn, week]);
   const preset = activePreset(snapshot);
-  const previousView = useMemo(() => buildWeekView(snapshot.courses, TERM_START, Math.max(1, week - 1)), [snapshot.courses, week]);
-  const nextView = useMemo(() => buildWeekView(snapshot.courses, TERM_START, Math.min(24, week + 1)), [snapshot.courses, week]);
+  const previousView = useMemo(() => buildWeekView(snapshot.courses, termStartsOn, Math.max(1, week - 1)), [snapshot.courses, termStartsOn, week]);
+  const nextView = useMemo(() => buildWeekView(snapshot.courses, termStartsOn, Math.min(24, week + 1)), [snapshot.courses, termStartsOn, week]);
   const selected = snapshot.courses.find((course) => course.id === selectedId && course.weeks.includes(week));
   const hasCourses = snapshot.courses.length > 0;
   const isLocalSchedule = snapshot.schoolName === "本地课表";
@@ -90,7 +94,7 @@ export function App() {
         const stored = await loadScheduleSnapshot();
         if (cancelled) return;
         if (stored) {
-          setSnapshot(stored);
+          setSnapshot(normalizeSnapshot(stored));
         } else {
           await saveScheduleSnapshot(snapshot);
         }
@@ -318,7 +322,7 @@ export function App() {
             <button className="icon-button" onClick={() => changeWeek(week - 1)} aria-label="上一周"><Icon name="chevron-left" /></button>
             <button className="today-button" onClick={() => changeWeek(1)}>本周</button>
             <button className="icon-button" onClick={() => changeWeek(week + 1)} aria-label="下一周"><Icon name="chevron-right" /></button>
-            <div className="week-date"><strong>第 {week} 周</strong><span>{formatWeekRange(view)}</span></div>
+            <button className="week-date" onClick={() => setTimetableOpen(true)} aria-label="调整第1周日期"><strong>第 {week} 周</strong><span>{formatWeekRange(view)}</span></button>
           </div>
           <div className="view-options">
             <button className="preset-button" onClick={() => setTimetableOpen(true)}><Icon name="clock" /><span>{preset.name}</span><Icon name="chevron-right" /></button>
@@ -355,6 +359,8 @@ export function App() {
         <TimetableDialog
           presets={snapshot.presets}
           activeId={snapshot.activePresetId}
+          termStartsOn={snapshot.termStartsOn ?? DEFAULT_TERM_START_KEY}
+          onTermStartChange={(value) => setSnapshot((current) => ({ ...current, termStartsOn: normalizeTermStartKey(value) }))}
           onActivate={(id) => setSnapshot((current) => ({ ...current, activePresetId: id }))}
           onChange={updatePreset}
           onCreate={createPreset}
@@ -385,7 +391,7 @@ export function App() {
             openNewCourse();
           }}
           onRestore={(restored) => {
-            setSnapshot(restored);
+            setSnapshot(normalizeSnapshot(restored));
             setImportOpen(false);
             setWeek(1);
             setToast(`已恢复 ${restored.courses.length} 条课程记录`);
@@ -394,7 +400,7 @@ export function App() {
             setSnapshot((current) => {
               const importedIds = new Set(importedCourses.map((course) => course.id));
               const localCourses = keepLocal ? current.courses.filter((course) => !importedIds.has(course.id)) : [];
-              return { ...current, schoolName: school.name, schoolId: school.id, accountId: account.id, academicYear: term.academicYear, semester: term.semester, lastSyncAt: new Date().toISOString(), courses: [...localCourses, ...importedCourses] };
+              return { ...current, schoolName: school.name, schoolId: school.id, accountId: account.id, academicYear: term.academicYear, semester: term.semester, termStartsOn: normalizeTermStartKey(term.termStartsOn), lastSyncAt: new Date().toISOString(), courses: [...localCourses, ...importedCourses] };
             });
             setImportOpen(false);
             setToast(`已从${school.name}导入 ${importedCourses.length} 条课程`);
@@ -406,7 +412,7 @@ export function App() {
         <ExportDialog
           snapshot={snapshot}
           preset={preset}
-          termStartsOn={TERM_START}
+          termStartsOn={termStartsOn}
           week={week}
           onClose={() => setExportOpen(false)}
           onExported={(message) => setToast(message)}

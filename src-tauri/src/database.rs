@@ -13,6 +13,7 @@ pub(crate) struct ScheduleSnapshot {
     pub account_id: Option<String>,
     pub academic_year: Option<u16>,
     pub semester: Option<u8>,
+    pub term_starts_on: Option<String>,
     pub last_sync_at: Option<String>,
 }
 
@@ -102,8 +103,8 @@ impl ScheduleStore {
             .execute(
                 "INSERT INTO schedule_state (
                     singleton, active_preset_id, school_name, school_id, account_id,
-                    academic_year, semester, last_sync_at
-                 ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                    academic_year, semester, term_starts_on, last_sync_at
+                 ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                  ON CONFLICT(singleton) DO UPDATE SET
                     active_preset_id = excluded.active_preset_id,
                     school_name = excluded.school_name,
@@ -111,6 +112,7 @@ impl ScheduleStore {
                     account_id = excluded.account_id,
                     academic_year = excluded.academic_year,
                     semester = excluded.semester,
+                    term_starts_on = excluded.term_starts_on,
                     last_sync_at = excluded.last_sync_at",
                 params![
                     snapshot.active_preset_id,
@@ -119,6 +121,7 @@ impl ScheduleStore {
                     snapshot.account_id,
                     snapshot.academic_year,
                     snapshot.semester,
+                    snapshot.term_starts_on,
                     snapshot.last_sync_at,
                 ],
             )
@@ -257,9 +260,33 @@ fn migrate_schema(connection: &Connection) -> Result<(), String> {
             )
             .map_err(database_error)?;
     }
+
+    let mut statement = connection
+        .prepare("PRAGMA table_info(schedule_state)")
+        .map_err(database_error)?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(database_error)?;
+    let mut has_term_starts_on = false;
+    for column in columns {
+        if column.map_err(database_error)? == "term_starts_on" {
+            has_term_starts_on = true;
+            break;
+        }
+    }
+    drop(statement);
+
+    if !has_term_starts_on {
+        connection
+            .execute(
+                "ALTER TABLE schedule_state ADD COLUMN term_starts_on TEXT",
+                [],
+            )
+            .map_err(database_error)?;
+    }
     connection
         .execute(
-            "UPDATE schema_meta SET value = '2' WHERE key = 'schema_version'",
+            "UPDATE schema_meta SET value = '3' WHERE key = 'schema_version'",
             [],
         )
         .map_err(database_error)?;
@@ -269,7 +296,7 @@ fn migrate_schema(connection: &Connection) -> Result<(), String> {
 fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, String> {
     let state = connection
         .query_row(
-            "SELECT active_preset_id, school_name, school_id, account_id, academic_year, semester, last_sync_at
+            "SELECT active_preset_id, school_name, school_id, account_id, academic_year, semester, term_starts_on, last_sync_at
              FROM schedule_state WHERE singleton = 1",
             [],
             |row| {
@@ -281,6 +308,7 @@ fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, St
                     row.get::<_, Option<u16>>(4)?,
                     row.get::<_, Option<u8>>(5)?,
                     row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<String>>(7)?,
                 ))
             },
         )
@@ -293,6 +321,7 @@ fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, St
         account_id,
         academic_year,
         semester,
+        term_starts_on,
         last_sync_at,
     )) = state
     else {
@@ -404,6 +433,7 @@ fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, St
         account_id,
         academic_year,
         semester,
+        term_starts_on,
         last_sync_at,
     };
     validate_snapshot(&snapshot)?;
@@ -432,6 +462,13 @@ fn validate_snapshot(snapshot: &ScheduleSnapshot) -> Result<(), String> {
             .is_some_and(|semester| !matches!(semester, 1 | 2))
     {
         return Err("学年或学期无效".into());
+    }
+    if snapshot
+        .term_starts_on
+        .as_deref()
+        .is_some_and(|value| !valid_date_key(value))
+    {
+        return Err("第1周日期无效".into());
     }
     if snapshot
         .school_id
@@ -540,6 +577,32 @@ fn valid_time(value: &str) -> bool {
         && minutes.parse::<u8>().is_ok_and(|number| number <= 59)
 }
 
+fn valid_date_key(value: &str) -> bool {
+    if value.len() != 10 {
+        return false;
+    }
+    let parts = value.split('-').collect::<Vec<_>>();
+    if parts.len() != 3 || parts[0].len() != 4 || parts[1].len() != 2 || parts[2].len() != 2 {
+        return false;
+    }
+    let (Ok(year), Ok(month), Ok(day)) = (
+        parts[0].parse::<u16>(),
+        parts[1].parse::<u8>(),
+        parts[2].parse::<u8>(),
+    ) else {
+        return false;
+    };
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let max_day = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return false,
+    };
+    (2000..=2101).contains(&year) && (1..=max_day).contains(&day)
+}
+
 fn database_error(error: rusqlite::Error) -> String {
     format!("本地数据库错误：{error}")
 }
@@ -553,7 +616,7 @@ CREATE TABLE IF NOT EXISTS schema_meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('schema_version', '2');
+INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('schema_version', '3');
 
 CREATE TABLE IF NOT EXISTS schedule_state (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -563,6 +626,7 @@ CREATE TABLE IF NOT EXISTS schedule_state (
     account_id TEXT,
     academic_year INTEGER,
     semester INTEGER,
+    term_starts_on TEXT,
     last_sync_at TEXT
 );
 
@@ -651,6 +715,7 @@ mod tests {
             account_id: Some("account-1".into()),
             academic_year: Some(2026),
             semester: Some(1),
+            term_starts_on: Some("2026-09-14".into()),
             last_sync_at: Some("2026-08-31T00:00:00.000Z".into()),
         }
     }
@@ -730,5 +795,35 @@ mod tests {
         assert_eq!(accounts[0].id, "legacy-1");
         assert_eq!(accounts[0].login_name, "");
         assert_eq!(accounts[0].label, "legacy");
+    }
+
+    #[test]
+    fn migrates_legacy_schedule_state_with_a_term_start_column() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE schedule_state (
+                    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                    active_preset_id TEXT NOT NULL,
+                    school_name TEXT,
+                    school_id TEXT,
+                    account_id TEXT,
+                    academic_year INTEGER,
+                    semester INTEGER,
+                    last_sync_at TEXT
+                 );",
+            )
+            .unwrap();
+
+        let store = ScheduleStore::from_connection(connection).unwrap();
+        let connection = store.connection.lock().unwrap();
+        let count: u8 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('schedule_state') WHERE name = 'term_starts_on'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
     }
 }

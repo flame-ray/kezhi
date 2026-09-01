@@ -1,4 +1,5 @@
 import type { CourseColor, CourseMeeting, CourseStatus, DayOfWeek, ScheduleSnapshot, TimetablePreset } from "../domain/schedule";
+import { normalizeTermStartKey } from "../domain/termDate";
 
 const colors: CourseColor[] = ["blue", "teal", "coral", "violet", "rose", "amber", "indigo"];
 const statuses: CourseStatus[] = ["normal", "changed", "cancelled"];
@@ -25,6 +26,7 @@ export function parseScheduleBackup(text: string): ScheduleSnapshot {
   const requestedPreset = typeof raw.activePresetId === "string" ? raw.activePresetId : presets[0].id;
   const activePresetId = presets.some((preset) => preset.id === requestedPreset) ? requestedPreset : presets[0].id;
 
+  const nestedTermStart = isRecord(raw.term) ? raw.term.startsOn : undefined;
   return {
     courses,
     presets,
@@ -34,6 +36,7 @@ export function parseScheduleBackup(text: string): ScheduleSnapshot {
     accountId: safeIdentifier(raw.accountId),
     academicYear: numberInRange(raw.academicYear, 2000, 2100),
     semester: numberInRange(raw.semester, 1, 2) as 1 | 2 | undefined,
+    termStartsOn: normalizeTermStartKey(typeof raw.termStartsOn === "string" ? raw.termStartsOn : typeof nestedTermStart === "string" ? nestedTermStart : undefined),
     lastSyncAt: safeIsoDate(raw.lastSyncAt),
   };
 }

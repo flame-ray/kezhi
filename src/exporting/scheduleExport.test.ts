@@ -9,6 +9,7 @@ const context: ExportContext = {
     presets: defaultPresets,
     activePresetId: "summer",
     schoolName: "宁德师范学院",
+    termStartsOn: "2026-09-14",
   },
   preset: defaultPresets[0],
   termStartsOn: new Date(2026, 7, 31),
@@ -25,7 +26,9 @@ describe("schedule export", () => {
 
   it("creates Excel-compatible CSV and a complete JSON backup", () => {
     expect(buildScheduleCsv(context).split(/\r?\n/)).toHaveLength(demoCourses.length + 1);
-    expect(JSON.parse(buildScheduleJson(context)).courses).toHaveLength(demoCourses.length);
+    const backup = JSON.parse(buildScheduleJson(context));
+    expect(backup.courses).toHaveLength(demoCourses.length);
+    expect(backup.termStartsOn).toBe("2026-08-31");
   });
 
   it("renders the selected week as SVG", () => {

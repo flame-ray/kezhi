@@ -24,6 +24,7 @@ export function buildScheduleJson(context: ExportContext): string {
     version: 1,
     exportedAt: new Date().toISOString(),
     term: { name: context.termName, startsOn: toDateKey(context.termStartsOn) },
+    termStartsOn: toDateKey(context.termStartsOn),
     schoolName: context.snapshot.schoolName,
     schoolId: context.snapshot.schoolId,
     academicYear: context.snapshot.academicYear,

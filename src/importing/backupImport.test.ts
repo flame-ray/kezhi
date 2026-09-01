@@ -14,6 +14,7 @@ describe("schedule backup import", () => {
         schoolId: "ndnu",
         academicYear: 2026,
         semester: 1,
+        termStartsOn: "2026-09-14",
         lastSyncAt: "2026-08-31T00:00:00.000Z",
       },
       preset: defaultPresets[0],
@@ -25,6 +26,7 @@ describe("schedule backup import", () => {
     expect(restored.schoolName).toBe("宁德师范学院");
     expect(restored.academicYear).toBe(2026);
     expect(restored.semester).toBe(1);
+    expect(restored.termStartsOn).toBe("2026-08-31");
     expect(restored.lastSyncAt).toBe("2026-08-31T00:00:00.000Z");
   });
 

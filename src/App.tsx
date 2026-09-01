@@ -4,6 +4,7 @@ import { CourseEditorDialog, type CourseDraftSlot } from "./components/CourseEdi
 import { EmptySchedule } from "./components/EmptySchedule";
 import { ExportDialog } from "./components/ExportDialog";
 import { ImportWizard } from "./components/ImportWizard";
+import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
 import { SyncReviewDialog } from "./components/SyncReviewDialog";
 import { TimetableDialog } from "./components/TimetableDialog";
@@ -14,14 +15,16 @@ import { activePreset, buildWeekView, formatWeekRange, moveMeeting } from "./dom
 import { DEFAULT_TERM_START_KEY, normalizeTermStartKey, resolveTermStartDate } from "./domain/termDate";
 import { parseZhengfangSchedule } from "./importing/zhengfangAdapter";
 import { fetchSchoolSchedule, getSchoolLoginStatus, isTauriRuntime, loadScheduleSnapshot, prepareSchoolSession, saveScheduleSnapshot } from "./platform/tauriBridge";
+import { clearScheduledCourseNotifications, ensureNotificationPermission, replaceScheduledCourseNotifications, sendReminderTestNotification } from "./platform/notifications";
 import { getRuntimeCapabilities } from "./platform/runtime";
+import { buildReminderSchedule, normalizeReminderSettings } from "./reminders/reminderSchedule";
 import { applyScheduleSyncPlan, createScheduleSyncPlan, type ScheduleSyncPlan, type SyncChoice } from "./sync/scheduleSync";
 import { Icon } from "./ui/Icon";
 
 const STORAGE_KEY = "kezhi.schedule.prototype.v2";
 const THEME_KEY = "kezhi.appearance.theme";
 function normalizeSnapshot(snapshot: ScheduleSnapshot): ScheduleSnapshot {
-  return { ...snapshot, termStartsOn: normalizeTermStartKey(snapshot.termStartsOn) };
+  return { ...snapshot, termStartsOn: normalizeTermStartKey(snapshot.termStartsOn), reminderSettings: normalizeReminderSettings(snapshot.reminderSettings) };
 }
 type AppTheme = "light" | "dark";
 
@@ -32,7 +35,7 @@ function initialSnapshot(): ScheduleSnapshot {
   } catch {
     // A corrupt prototype snapshot should never prevent the app from opening.
   }
-  return { courses: [], presets: defaultPresets, activePresetId: "summer", termStartsOn: DEFAULT_TERM_START_KEY };
+  return normalizeSnapshot({ courses: [], presets: defaultPresets, activePresetId: "summer", termStartsOn: DEFAULT_TERM_START_KEY });
 }
 
 function initialTheme(): AppTheme {
@@ -54,12 +57,16 @@ export function App() {
   const [importOpen, setImportOpen] = useState(false);
   const [newCourseSlot, setNewCourseSlot] = useState<CourseDraftSlot>();
   const [exportOpen, setExportOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [syncPlan, setSyncPlan] = useState<ScheduleSyncPlan>();
   const [toast, setToast] = useState<string>();
   const [syncing, setSyncing] = useState(false);
   const [storageBackend, setStorageBackend] = useState<"loading" | "sqlite" | "local">(() => isTauriRuntime() ? "loading" : "local");
   const [theme, setTheme] = useState<AppTheme>(initialTheme);
   const syncInFlight = useRef(false);
+  const reminderSyncGeneration = useRef(0);
+  const reminderSyncQueue = useRef<Promise<void>>(Promise.resolve());
+  const [scheduledReminderCount, setScheduledReminderCount] = useState(0);
   const capabilities = getRuntimeCapabilities();
 
   const termStartsOn = useMemo(() => resolveTermStartDate(snapshot.termStartsOn), [snapshot.termStartsOn]);
@@ -68,6 +75,7 @@ export function App() {
   const previousView = useMemo(() => buildWeekView(snapshot.courses, termStartsOn, Math.max(1, week - 1)), [snapshot.courses, termStartsOn, week]);
   const nextView = useMemo(() => buildWeekView(snapshot.courses, termStartsOn, Math.min(24, week + 1)), [snapshot.courses, termStartsOn, week]);
   const selected = snapshot.courses.find((course) => course.id === selectedId && course.weeks.includes(week));
+  const reminderSettings = normalizeReminderSettings(snapshot.reminderSettings);
   const hasCourses = snapshot.courses.length > 0;
   const isLocalSchedule = snapshot.schoolName === "本地课表";
   const termLabel = snapshot.academicYear && snapshot.semester
@@ -131,6 +139,34 @@ export function App() {
     const timeout = window.setTimeout(() => setToast(undefined), 2800);
     return () => window.clearTimeout(timeout);
   }, [toast]);
+
+  useEffect(() => {
+    if (storageBackend === "loading" || !capabilities.native) return;
+    const generation = ++reminderSyncGeneration.current;
+    const timeout = window.setTimeout(() => {
+      reminderSyncQueue.current = reminderSyncQueue.current
+        .catch(() => undefined)
+        .then(async () => {
+          if (generation !== reminderSyncGeneration.current) return;
+          if (!reminderSettings.enabled) {
+            await clearScheduledCourseNotifications();
+            if (generation === reminderSyncGeneration.current) setScheduledReminderCount(0);
+            return;
+          }
+          const reminders = buildReminderSchedule(snapshot.courses, preset, termStartsOn, reminderSettings);
+          const count = await replaceScheduledCourseNotifications(reminders);
+          if (generation === reminderSyncGeneration.current) setScheduledReminderCount(count);
+        })
+        .catch((error) => {
+          if (generation === reminderSyncGeneration.current) {
+            setToast(`课程提醒安排失败：${error instanceof Error ? error.message : String(error)}`);
+          }
+        });
+    }, 500);
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [capabilities.native, preset, reminderSettings.enabled, reminderSettings.defaultMinutes, snapshot.courses, storageBackend, termStartsOn]);
 
   const changeWeek = (next: number) => {
     const safeWeek = Math.min(24, Math.max(1, next));
@@ -288,13 +324,54 @@ export function App() {
     setEditingCourse("new");
   };
 
+  const toggleReminders = async (enabled: boolean): Promise<boolean> => {
+    if (enabled) {
+      try {
+        if (!(await ensureNotificationPermission())) {
+          setToast("未获得系统通知权限，请在系统设置中允许课织发送通知");
+          return false;
+        }
+      } catch (error) {
+        setToast(`无法开启通知：${error instanceof Error ? error.message : String(error)}`);
+        return false;
+      }
+    }
+    setSnapshot((current) => ({
+      ...current,
+      reminderSettings: { ...normalizeReminderSettings(current.reminderSettings), enabled },
+    }));
+    if (!enabled) setScheduledReminderCount(0);
+    setToast(enabled ? "课程提醒已开启，正在安排未来通知" : "课程提醒已关闭");
+    return true;
+  };
+
+  const updateCourseReminder = (courseId: string, minutes: number | undefined) => {
+    setSnapshot((current) => ({
+      ...current,
+      courses: current.courses.map((course) => course.id === courseId ? { ...course, reminderMinutes: minutes } : course),
+    }));
+    setToast(minutes === 0 ? "这门课已关闭提醒" : "课程提醒已更新");
+  };
+
+  const testReminder = async () => {
+    try {
+      await sendReminderTestNotification();
+      setToast("测试通知已发送");
+    } catch (error) {
+      setToast(`测试通知失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
   return (
     <div className="app-shell">
 
       <Sidebar
         active="课表"
         schoolName={snapshot.schoolName}
-        onNavigate={(item) => item === "课表" ? undefined : setToast(`${item}模块已加入开发路线图`)}
+        onNavigate={(item) => {
+          if (item === "设置") setSettingsOpen(true);
+          else if (item !== "课表") setToast(`${item}模块已加入开发路线图`);
+        }}
       />
 
       <main className="main-area">
@@ -348,9 +425,29 @@ export function App() {
             )}
             <div className="calendar-hint"><span className="hint-dot" />左右滑动切换周次 · 长按空白格添加课程 · 拖动课程可调整时间</div>
           </section>
-          <CourseDetails meeting={selected} preset={preset} onClose={() => setSelectedId(undefined)} onEdit={() => selected && setEditingCourse(selected)} />
+          <CourseDetails
+            meeting={selected}
+            preset={preset}
+            reminderSettings={reminderSettings}
+            onClose={() => setSelectedId(undefined)}
+            onEdit={() => selected && setEditingCourse(selected)}
+            onReminderChange={(minutes) => selected && updateCourseReminder(selected.id, minutes)}
+            onOpenReminderSettings={() => setSettingsOpen(true)}
+          />
         </div>
       </main>
+
+      {settingsOpen && (
+        <SettingsDialog
+          settings={reminderSettings}
+          scheduledCount={scheduledReminderCount}
+          nativeNotifications={capabilities.native}
+          onToggleReminders={toggleReminders}
+          onDefaultMinutesChange={(defaultMinutes) => setSnapshot((current) => ({ ...current, reminderSettings: { ...normalizeReminderSettings(current.reminderSettings), defaultMinutes } }))}
+          onTestNotification={testReminder}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
 
       {timetableOpen && (
         <TimetableDialog

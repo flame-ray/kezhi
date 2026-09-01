@@ -115,7 +115,7 @@ export function applyScheduleSyncPlan(
     if (change.kind === "modified" && change.local && change.official) {
       const index = result.findIndex((course) => course.id === change.local?.id);
       if (index >= 0) {
-        result.splice(index, 1, { ...change.official, color: change.local.color, status: "normal" });
+        result.splice(index, 1, { ...change.official, color: change.local.color, reminderMinutes: change.local.reminderMinutes, status: "normal" });
       }
     }
   }

@@ -1,4 +1,5 @@
-import type { CourseMeeting, TimetablePreset } from "../domain/schedule";
+import type { CourseMeeting, ReminderSettings, TimetablePreset } from "../domain/schedule";
+import { effectiveReminderMinutes } from "../reminders/reminderSchedule";
 import { Icon } from "../ui/Icon";
 
 const dayNames = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -6,11 +7,14 @@ const dayNames = ["周一", "周二", "周三", "周四", "周五", "周六", "�
 interface CourseDetailsProps {
   meeting?: CourseMeeting;
   preset: TimetablePreset;
+  reminderSettings: ReminderSettings;
   onClose: () => void;
   onEdit: () => void;
+  onReminderChange: (minutes: number | undefined) => void;
+  onOpenReminderSettings: () => void;
 }
 
-export function CourseDetails({ meeting, preset, onClose, onEdit }: CourseDetailsProps) {
+export function CourseDetails({ meeting, preset, reminderSettings, onClose, onEdit, onReminderChange, onOpenReminderSettings }: CourseDetailsProps) {
   if (!meeting) {
     return (
       <aside className="detail-panel detail-empty">
@@ -29,6 +33,8 @@ export function CourseDetails({ meeting, preset, onClose, onEdit }: CourseDetail
   const start = preset.periods.find((period) => period.index === meeting.startPeriod)?.start;
   const end = preset.periods.find((period) => period.index === meeting.endPeriod)?.end;
   const weekText = compressWeeks(meeting.weeks);
+  const reminderMinutes = effectiveReminderMinutes(meeting, reminderSettings);
+  const reminderActive = reminderSettings.enabled && reminderMinutes > 0;
 
   return (
     <aside className="detail-panel">
@@ -54,9 +60,18 @@ export function CourseDetails({ meeting, preset, onClose, onEdit }: CourseDetail
         </div>
       )}
 
-      <button className="reminder-row">
-        <span><Icon name="clock" /><span><strong>上课提醒</strong><small>提前 15 分钟</small></span></span>
-        <i className="switch active" />
+      <button
+        className="reminder-row"
+        onClick={() => reminderSettings.enabled ? onReminderChange(reminderMinutes > 0 ? 0 : undefined) : onOpenReminderSettings()}
+      >
+        <span><Icon name="bell" /><span><strong>上课提醒</strong><small>{
+          !reminderSettings.enabled
+            ? "总开关已关闭 · 点击设置"
+            : reminderMinutes > 0
+              ? `${meeting.reminderMinutes ? "单独设置" : "跟随默认"} · 提前 ${reminderMinutes} 分钟`
+              : "这门课不提醒"
+        }</small></span></span>
+        <i className={`switch ${reminderActive ? "active" : ""}`} />
       </button>
     </aside>
   );

@@ -41,7 +41,7 @@ describe("schedule sync module", () => {
 
   it("preserves manual courses and applies each user choice", () => {
     const manual = course("manual", { source: "local", sourceKey: undefined, title: "自习" });
-    const local = [manual, course("old", { sourceKey: "room", location: "A101" })];
+    const local = [manual, course("old", { sourceKey: "room", location: "A101", reminderMinutes: 30 })];
     const official = [
       course("new", { sourceKey: "room", location: "A202" }),
       course("added", { sourceKey: "pe", title: "大学体育" }),
@@ -52,6 +52,7 @@ describe("schedule sync module", () => {
 
     expect(applied.some((item) => item.id === "manual")).toBe(true);
     expect(applied.some((item) => item.location === "A202")).toBe(true);
+    expect(applied.find((item) => item.location === "A202")?.reminderMinutes).toBe(30);
     expect(applied.some((item) => item.title === "大学体育")).toBe(true);
   });
 

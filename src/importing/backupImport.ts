@@ -1,5 +1,6 @@
 import type { CourseColor, CourseMeeting, CourseStatus, DayOfWeek, ScheduleSnapshot, TimetablePreset } from "../domain/schedule";
 import { normalizeTermStartKey } from "../domain/termDate";
+import { normalizeReminderSettings } from "../reminders/reminderSchedule";
 
 const colors: CourseColor[] = ["blue", "teal", "coral", "violet", "rose", "amber", "indigo"];
 const statuses: CourseStatus[] = ["normal", "changed", "cancelled"];
@@ -38,6 +39,7 @@ export function parseScheduleBackup(text: string): ScheduleSnapshot {
     semester: numberInRange(raw.semester, 1, 2) as 1 | 2 | undefined,
     termStartsOn: normalizeTermStartKey(typeof raw.termStartsOn === "string" ? raw.termStartsOn : typeof nestedTermStart === "string" ? nestedTermStart : undefined),
     lastSyncAt: safeIsoDate(raw.lastSyncAt),
+    reminderSettings: normalizeReminderSettings(raw.reminderSettings),
   };
 }
 
@@ -67,6 +69,7 @@ function parseCourse(value: unknown, index: number): CourseMeeting {
     note: typeof value.note === "string" ? value.note.slice(0, 500) : undefined,
     source: value.source === "school" ? "school" : value.source === "local" ? "local" : undefined,
     sourceKey: typeof value.sourceKey === "string" && value.sourceKey.trim() ? value.sourceKey.trim().slice(0, 300) : undefined,
+    reminderMinutes: value.reminderMinutes === 0 ? 0 : numberInRange(value.reminderMinutes, 1, 180),
   };
 }
 

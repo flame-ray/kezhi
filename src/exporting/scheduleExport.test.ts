@@ -10,6 +10,7 @@ const context: ExportContext = {
     activePresetId: "summer",
     schoolName: "宁德师范学院",
     termStartsOn: "2026-09-14",
+    reminderSettings: { enabled: true, defaultMinutes: 15 },
   },
   preset: defaultPresets[0],
   termStartsOn: new Date(2026, 7, 31),
@@ -22,6 +23,8 @@ describe("schedule export", () => {
     const expected = demoCourses.reduce((sum, course) => sum + course.weeks.length, 0);
     expect(ics.match(/BEGIN:VEVENT/g)).toHaveLength(expected);
     expect(ics).toContain("TZID=Asia/Shanghai");
+    expect(ics.match(/BEGIN:VALARM/g)).toHaveLength(expected);
+    expect(ics).toContain("TRIGGER:-PT15M");
   });
 
   it("creates Excel-compatible CSV and a complete JSON backup", () => {
@@ -29,6 +32,8 @@ describe("schedule export", () => {
     const backup = JSON.parse(buildScheduleJson(context));
     expect(backup.courses).toHaveLength(demoCourses.length);
     expect(backup.termStartsOn).toBe("2026-08-31");
+    expect(backup.reminderSettings).toEqual({ enabled: true, defaultMinutes: 15 });
+    expect(buildScheduleCsv(context)).toContain("提前15分钟");
   });
 
   it("renders the selected week as SVG", () => {

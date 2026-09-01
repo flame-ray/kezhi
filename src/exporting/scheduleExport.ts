@@ -1,4 +1,5 @@
 import type { CourseMeeting, ScheduleSnapshot, TimetablePreset } from "../domain/schedule";
+import { effectiveReminderMinutes, normalizeReminderSettings } from "../reminders/reminderSchedule";
 
 const DAY_MS = 86_400_000;
 const colorMap: Record<CourseMeeting["color"], string> = {
@@ -33,11 +34,13 @@ export function buildScheduleJson(context: ExportContext): string {
     activePresetId: context.snapshot.activePresetId,
     presets: context.snapshot.presets,
     courses: context.snapshot.courses,
+    reminderSettings: normalizeReminderSettings(context.snapshot.reminderSettings),
   }, null, 2);
 }
 
 export function buildScheduleCsv(context: ExportContext): string {
-  const headers = ["课程名称", "课程编号", "教师", "教室", "星期", "开始节次", "结束节次", "上课周次", "备注"];
+  const settings = normalizeReminderSettings(context.snapshot.reminderSettings);
+  const headers = ["课程名称", "课程编号", "教师", "教室", "星期", "开始节次", "结束节次", "上课周次", "提醒", "备注"];
   const rows = context.snapshot.courses.map((course) => [
     course.title,
     course.courseCode,
@@ -47,6 +50,7 @@ export function buildScheduleCsv(context: ExportContext): string {
     course.startPeriod,
     course.endPeriod,
     compressWeeks(course.weeks),
+    effectiveReminderMinutes(course, settings) > 0 ? `提前${effectiveReminderMinutes(course, settings)}分钟` : "关闭",
     course.note ?? "",
   ]);
   return `\uFEFF${[headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")}`;
@@ -54,12 +58,14 @@ export function buildScheduleCsv(context: ExportContext): string {
 
 export function buildScheduleIcs(context: ExportContext): string {
   const stamp = toUtcStamp(new Date());
+  const settings = normalizeReminderSettings(context.snapshot.reminderSettings);
   const events = context.snapshot.courses.flatMap((course) => {
     const startPeriod = context.preset.periods.find((period) => period.index === course.startPeriod);
     const endPeriod = context.preset.periods.find((period) => period.index === course.endPeriod);
     if (!startPeriod || !endPeriod) return [];
 
     return course.weeks.map((week) => {
+      const reminderMinutes = settings.enabled ? effectiveReminderMinutes(course, settings) : 0;
       const date = new Date(context.termStartsOn.getTime() + ((week - 1) * 7 + course.day - 1) * DAY_MS);
       return [
         "BEGIN:VEVENT",
@@ -70,6 +76,7 @@ export function buildScheduleIcs(context: ExportContext): string {
         `SUMMARY:${icsEscape(course.title)}`,
         `LOCATION:${icsEscape(course.location)}`,
         `DESCRIPTION:${icsEscape(`${course.teacher} · 第${course.startPeriod}-${course.endPeriod}节 · 第${week}周`)}`,
+        ...(reminderMinutes > 0 ? ["BEGIN:VALARM", `TRIGGER:-PT${reminderMinutes}M`, "ACTION:DISPLAY", `DESCRIPTION:${icsEscape(course.title)} 即将上课`, "END:VALARM"] : []),
         "END:VEVENT",
       ].join("\r\n");
     });

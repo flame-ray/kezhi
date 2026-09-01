@@ -16,6 +16,7 @@ describe("schedule backup import", () => {
         semester: 1,
         termStartsOn: "2026-09-14",
         lastSyncAt: "2026-08-31T00:00:00.000Z",
+        reminderSettings: { enabled: true, defaultMinutes: 30 },
       },
       preset: defaultPresets[0],
       termStartsOn: new Date(2026, 7, 31),
@@ -28,6 +29,7 @@ describe("schedule backup import", () => {
     expect(restored.semester).toBe(1);
     expect(restored.termStartsOn).toBe("2026-08-31");
     expect(restored.lastSyncAt).toBe("2026-08-31T00:00:00.000Z");
+    expect(restored.reminderSettings).toEqual({ enabled: true, defaultMinutes: 30 });
   });
 
   it("rejects unknown and malformed data", () => {

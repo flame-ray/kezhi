@@ -17,6 +17,7 @@ export interface CourseMeeting {
   note?: string;
   source?: "local" | "school";
   sourceKey?: string;
+  reminderMinutes?: number;
 }
 
 export type CourseColor =
@@ -39,6 +40,11 @@ export interface TimetablePreset {
   name: string;
   periods: Period[];
 }
+export interface ReminderSettings {
+  enabled: boolean;
+  defaultMinutes: number;
+}
+
 
 export interface WeekView {
   week: number;
@@ -61,4 +67,5 @@ export interface ScheduleSnapshot {
   semester?: 1 | 2;
   termStartsOn?: string;
   lastSyncAt?: string;
+  reminderSettings?: ReminderSettings;
 }

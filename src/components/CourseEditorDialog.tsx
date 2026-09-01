@@ -35,6 +35,7 @@ export function CourseEditorDialog({ meeting, initialSlot, maxPeriod, onSave, on
   const [customWeeks, setCustomWeeks] = useState(toWeekExpression(meeting?.weeks ?? []));
   const [color, setColor] = useState<CourseColor>(meeting?.color ?? "blue");
   const [note, setNote] = useState(meeting?.note ?? "");
+  const [reminderMinutes, setReminderMinutes] = useState(meeting?.reminderMinutes === 0 ? "off" : meeting?.reminderMinutes ? String(meeting.reminderMinutes) : "default");
   const [error, setError] = useState<string>();
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -65,6 +66,7 @@ export function CourseEditorDialog({ meeting, initialSlot, maxPeriod, onSave, on
       color,
       note: note.trim() || undefined,
       status: meeting?.status ?? "changed",
+      reminderMinutes: reminderMinutes === "off" ? 0 : reminderMinutes === "default" ? undefined : Number(reminderMinutes),
     });
   };
 
@@ -100,6 +102,15 @@ export function CourseEditorDialog({ meeting, initialSlot, maxPeriod, onSave, on
           <div className="form-section">
             <span className="field-label">课程颜色</span>
             <div className="color-picker">{colors.map((item) => <button className={`color-choice color-${item} ${color === item ? "active" : ""}`} aria-label={item} onClick={() => setColor(item)} key={item}>{color === item && <Icon name="check" />}</button>)}</div>
+          </div>
+
+          <div className="form-section">
+            <span className="field-label">上课提醒</span>
+            <label className="field reminder-editor-field"><span>提前通知</span><select value={reminderMinutes} onChange={(event) => setReminderMinutes(event.target.value)}>
+              <option value="default">跟随全局默认</option>
+              <option value="off">这门课不提醒</option>
+              {[5, 10, 15, 20, 30, 45, 60].map((minutes) => <option value={minutes} key={minutes}>提前 {minutes} 分钟</option>)}
+            </select><small>保存后会自动重新安排系统通知</small></label>
           </div>
 
           <label className="field"><span>备注</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="例如：单周上课、携带实验服……" rows={2} /></label>

@@ -397,6 +397,27 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79, 99, 217,
 .toast svg { width: 14px; }
 
 @keyframes fade-in { from { opacity: 0; } }
+.settings-dialog { width: min(590px, 92vw); }
+.settings-body { display: flex; min-height: 0; flex-direction: column; gap: 12px; padding: 2px 26px 24px; overflow-y: auto; }
+.settings-toggle-card, .settings-select-row { display: flex; align-items: center; width: 100%; gap: 13px; padding: 15px; text-align: left; color: inherit; border: 1px solid #e2e4eb; border-radius: 15px; background: #f8f9fc; }
+.settings-toggle-card { transition: transform .16s ease, border-color .16s ease, background .16s ease; }
+.settings-toggle-card:not(:disabled):hover { transform: translateY(-1px); border-color: #c9ceec; background: #f3f5ff; }
+.settings-toggle-card:disabled { opacity: .6; cursor: not-allowed; }
+.settings-icon { display: grid; place-items: center; flex: 0 0 auto; width: 40px; height: 40px; border-radius: 12px; color: var(--primary); background: #e8ebff; }
+.settings-icon svg { width: 19px; }
+.settings-toggle-copy, .settings-select-row > span, .settings-note > span { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 4px; }
+.settings-toggle-copy strong, .settings-select-row strong, .settings-note strong { font-size: 12px; }
+.settings-toggle-copy small, .settings-select-row small, .settings-note small { color: #8d929d; font-size: 9px; line-height: 1.5; }
+.settings-toggle-card .switch { flex: 0 0 auto; }
+.settings-select-row { justify-content: space-between; }
+.settings-select-row select { flex: 0 0 auto; height: 38px; padding: 0 10px; border: 1px solid #dfe2ea; border-radius: 10px; color: #343945; background: white; }
+.settings-select-row select:disabled { opacity: .55; }
+.settings-note { display: flex; align-items: flex-start; gap: 11px; padding: 13px 15px; border-radius: 13px; color: #356f69; background: #e8f5f3; }
+.settings-note > svg { flex: 0 0 auto; width: 17px; margin-top: 1px; }
+.settings-note small { color: #628d88; }
+.reminder-limit-note { color: #6c5b2c; background: #fff6dc; }
+.reminder-limit-note small { color: #8e805a; }
+.reminder-editor-field { max-width: 330px; }
 @keyframes dialog-in { from { opacity: 0; transform: translateY(18px) scale(.975); } }
 @keyframes toast-in { from { opacity: 0; transform: translateY(14px); } }
 @media (max-width: 1280px) {
@@ -572,6 +593,9 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79, 99, 217,
   .term-fields { width: 100%; grid-template-columns: 1fr; }
   .term-date-setting { align-items: stretch; flex-direction: column; margin-inline: 16px; }
   .review-summary > span { padding: 14px 6px; }
+  .settings-body { padding: 0 18px 18px; }
+  .settings-select-row { align-items: stretch; flex-direction: column; }
+  .settings-select-row select, .reminder-editor-field { width: 100%; max-width: none; }
   .toast {
     right: 12px;
     bottom: calc(76px + env(safe-area-inset-bottom));
@@ -635,6 +659,14 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79, 99, 217,
 :root[data-theme="dark"] .period-editor-row input { color: #e9ebf0; border-color: #3e414a; background: #212228; color-scheme: dark; }
 :root[data-theme="dark"] .detail-empty > p, :root[data-theme="dark"] .privacy-note { color: #a6a9b2; }
 :root[data-theme="dark"] .privacy-note { background: #292b32; }
+:root[data-theme="dark"] .settings-toggle-card, :root[data-theme="dark"] .settings-select-row { border-color: #393b44; background: #282a31; }
+:root[data-theme="dark"] .settings-toggle-card:not(:disabled):hover { border-color: #4b5278; background: #2e3140; }
+:root[data-theme="dark"] .settings-icon { color: #c3caff; background: #30365d; }
+:root[data-theme="dark"] .settings-select-row select { color: #eceef4; border-color: #3e414a; background: #212228; color-scheme: dark; }
+:root[data-theme="dark"] .settings-note { color: #9bd0c9; background: #263b39; }
+:root[data-theme="dark"] .settings-note small { color: #83aaa5; }
+:root[data-theme="dark"] .reminder-limit-note { color: #dbc885; background: #3c3626; }
+:root[data-theme="dark"] .reminder-limit-note small { color: #b7a978; }
 
 @media print {
   @page { size: landscape; margin: 8mm; }

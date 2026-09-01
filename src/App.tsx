@@ -48,7 +48,6 @@ function initialTheme(): AppTheme {
 export function App() {
   const [snapshot, setSnapshot] = useState<ScheduleSnapshot>(initialSnapshot);
   const [week, setWeek] = useState(1);
-  const [direction, setDirection] = useState<"left" | "right">("right");
   const [selectedId, setSelectedId] = useState<string>();
   const [timetableOpen, setTimetableOpen] = useState(false);
   const [editingCourse, setEditingCourse] = useState<CourseMeeting | "new">();
@@ -135,7 +134,6 @@ export function App() {
 
   const changeWeek = (next: number) => {
     const safeWeek = Math.min(24, Math.max(1, next));
-    setDirection(safeWeek >= week ? "right" : "left");
     setWeek(safeWeek);
     setSelectedId(undefined);
   };
@@ -338,7 +336,6 @@ export function App() {
               nextView={nextView}
               preset={preset}
               selectedId={selectedId}
-              direction={direction}
               canGoPrevious={week > 1}
               canGoNext={week < 24}
               onSelect={(meeting: CourseMeeting) => setSelectedId(meeting.id)}

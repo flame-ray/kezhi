@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -19,7 +20,6 @@ interface WeekCalendarProps {
   nextView: WeekView;
   preset: TimetablePreset;
   selectedId?: string;
-  direction: "left" | "right";
   canGoPrevious: boolean;
   canGoNext: boolean;
   onSelect: (meeting: CourseMeeting) => void;
@@ -34,7 +34,6 @@ export function WeekCalendar({
   nextView,
   preset,
   selectedId,
-  direction,
   canGoPrevious,
   canGoNext,
   onSelect,
@@ -58,9 +57,11 @@ export function WeekCalendar({
   const [transitioning, setTransitioning] = useState(false);
   const [swiping, setSwiping] = useState(false);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     gestureRef.current = undefined;
+    settlingDelta.current = 0;
     setSwiping(false);
+    setTransitioning(false);
     dragOffsetRef.current = 0;
     setDragOffset(0);
   }, [view.week]);
@@ -155,11 +156,9 @@ export function WeekCalendar({
         </div>
         <div className="calendar-scroll week-page active-page">
           <CalendarGrid
-            key={view.week}
             view={view}
             preset={preset}
             selectedId={selectedId}
-            direction={direction}
             interactive
             onSelect={onSelect}
             onMove={onMove}
@@ -178,21 +177,20 @@ interface CalendarGridProps {
   view: WeekView;
   preset: TimetablePreset;
   selectedId?: string;
-  direction?: "left" | "right";
   interactive: boolean;
   onSelect?: (meeting: CourseMeeting) => void;
   onMove?: (id: string, day: DayOfWeek, period: number) => void;
   onCreate?: (day: DayOfWeek, period: number) => void;
 }
 
-function CalendarGrid({ view, preset, selectedId, direction, interactive, onSelect, onMove, onCreate }: CalendarGridProps) {
+function CalendarGrid({ view, preset, selectedId, interactive, onSelect, onMove, onCreate }: CalendarGridProps) {
   const meetings = view.days.flatMap((day) => day.meetings);
   const today = new Date();
   const rowCount = preset.periods.length;
 
   return (
     <div
-      className={`calendar-grid ${direction ? `week-enter-${direction}` : ""}`}
+      className="calendar-grid"
       style={{ "--period-count": rowCount } as CSSProperties}
     >
       <div className="calendar-corner">

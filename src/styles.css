@@ -89,8 +89,8 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79, 99, 217,
 .calendar-panel { position: relative; display: flex; min-width: 0; flex-direction: column; overflow: hidden; }
 .calendar-scroll { flex: 1; min-height: 0; overflow: auto; scrollbar-color: #c9cdd8 transparent; scrollbar-width: thin; }
 .week-swipe-viewport { flex: 1; min-height: 0; overflow: hidden; touch-action: pan-y; }
-.week-swipe-track { display: flex; width: 100%; height: 100%; will-change: transform; }
-.week-page { flex: 0 0 100%; width: 100%; height: 100%; min-width: 0; overscroll-behavior: contain; }
+.week-swipe-track { display: flex; width: 100%; height: 100%; backface-visibility: hidden; will-change: transform; }
+.week-page { flex: 0 0 100%; width: 100%; height: 100%; min-width: 0; contain: paint; backface-visibility: hidden; overscroll-behavior: contain; transform: translateZ(0); }
 .week-page:not(.active-page) { pointer-events: none; }
 .week-swipe-viewport.swiping { cursor: grabbing; }
 .week-swipe-viewport.swiping .week-swipe-track { user-select: none; }
@@ -399,11 +399,6 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79, 99, 217,
 @keyframes fade-in { from { opacity: 0; } }
 @keyframes dialog-in { from { opacity: 0; transform: translateY(18px) scale(.975); } }
 @keyframes toast-in { from { opacity: 0; transform: translateY(14px); } }
-@keyframes week-right { from { opacity: .25; transform: translateX(16px); } }
-@keyframes week-left { from { opacity: .25; transform: translateX(-16px); } }
-.week-enter-right { animation: week-right .26s cubic-bezier(.2,.8,.2,1) both; }
-.week-enter-left { animation: week-left .26s cubic-bezier(.2,.8,.2,1) both; }
-
 @media (max-width: 1280px) {
   .app-shell { grid-template-columns: 78px minmax(0, 1fr); }
   .sidebar { align-items: center; padding-inline: 10px; }

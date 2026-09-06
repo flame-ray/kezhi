@@ -366,7 +366,7 @@ export function App() {
     <div className="app-shell">
 
       <Sidebar
-        active="课表"
+        active={settingsOpen ? "设置" : "课表"}
         schoolName={snapshot.schoolName}
         onNavigate={(item) => {
           if (item === "设置") setSettingsOpen(true);
@@ -385,10 +385,10 @@ export function App() {
           </div>
           <div className="top-actions">
             <button className="soft-button export-action" onClick={() => hasCourses ? setExportOpen(true) : setToast("请先导入或手动添加课程")}><Icon name="download" />导出</button>
-            <button className="soft-button" onClick={() => setImportOpen(true)}><Icon name="upload" />导入</button>
+            <button className="soft-button import-action" onClick={() => setImportOpen(true)}><Icon name="upload" /><span>导入</span></button>
             <button className={`soft-button sync-action ${syncing ? "syncing" : ""}`} disabled={syncing} onClick={() => void handleSync()}><Icon name="refresh" />{syncing ? "同步中" : "同步"}</button>
             <button className="soft-button theme-toggle" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={theme === "dark" ? "切换亮色主题" : "切换暗色主题"} title={theme === "dark" ? "切换亮色主题" : "切换暗色主题"}><Icon name={theme === "dark" ? "sun" : "moon"} /><span>{theme === "dark" ? "亮色" : "暗色"}</span></button>
-            <button className="primary-button" onClick={() => openNewCourse()}><Icon name="plus" />新建课程</button>
+            <button className="primary-button create-action" onClick={() => openNewCourse()}><Icon name="plus" /><span>新建课程</span></button>
           </div>
         </header>
 
@@ -423,7 +423,7 @@ export function App() {
             {!hasCourses && (
               <EmptySchedule onImport={() => setImportOpen(true)} onCreate={() => openNewCourse()} />
             )}
-            <div className="calendar-hint"><span className="hint-dot" />左右滑动切换周次 · 长按空白格添加课程 · 拖动课程可调整时间</div>
+            <div className="calendar-hint"><span className="hint-dot" />左右滑动切换周次 · 按住空白格约 0.8 秒添加课程 · 拖动课程可调整时间</div>
           </section>
           <CourseDetails
             meeting={selected}

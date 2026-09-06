@@ -37,6 +37,13 @@ export function Sidebar({ active, schoolName = "尚未连接学校", onNavigate 
             <span>{label}</span>
           </button>
         ))}
+        <button
+          className={`nav-item mobile-nav-item ${active === "设置" ? "active" : ""}`}
+          onClick={() => onNavigate("设置")}
+        >
+          <Icon name="settings" />
+          <span>设置</span>
+        </button>
       </nav>
 
       <div className="sidebar-spacer" />

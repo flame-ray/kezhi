@@ -8,11 +8,18 @@ import {
   type TransitionEvent as ReactTransitionEvent,
 } from "react";
 import type { CourseMeeting, DayOfWeek, TimetablePreset, WeekView } from "../domain/schedule";
+import {
+  LONG_PRESS_DELAY_MS,
+  LONG_PRESS_FEEDBACK_MS,
+  shouldCancelLongPress,
+} from "../interaction/longPress";
 import { resistedWeekOffset, resolveWeekSwipe, type WeekDelta } from "../interaction/weekPaging";
 import { Icon } from "../ui/Icon";
 
 const dayNames = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
-const PAGE_TRANSITION_MS = 260;
+const shortDayNames = ["一", "二", "三", "四", "五", "六", "日"];
+const MIN_PAGE_TRANSITION_MS = 190;
+const MAX_PAGE_TRANSITION_MS = 310;
 
 interface WeekCalendarProps {
   view: WeekView;
@@ -42,6 +49,10 @@ export function WeekCalendar({
   onChangeWeek,
 }: WeekCalendarProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const animationFrameRef = useRef<number | undefined>(undefined);
+  const transitionTimerRef = useRef<number | undefined>(undefined);
+  const transitioningRef = useRef(false);
   const gestureRef = useRef<{
     pointerId: number;
     startX: number;
@@ -53,21 +64,61 @@ export function WeekCalendar({
   } | undefined>(undefined);
   const settlingDelta = useRef<WeekDelta>(0);
   const dragOffsetRef = useRef(0);
-  const [dragOffset, setDragOffset] = useState(0);
-  const [transitioning, setTransitioning] = useState(false);
   const [swiping, setSwiping] = useState(false);
+
+  const cancelAnimationFrame = () => {
+    if (animationFrameRef.current !== undefined) window.cancelAnimationFrame(animationFrameRef.current);
+    animationFrameRef.current = undefined;
+  };
+
+  const writeTrackOffset = (offset: number) => {
+    trackRef.current?.style.setProperty("--week-drag", `${offset}px`);
+  };
+
+  const scheduleTrackOffset = (offset: number) => {
+    dragOffsetRef.current = offset;
+    if (animationFrameRef.current !== undefined) return;
+    animationFrameRef.current = window.requestAnimationFrame(() => {
+      animationFrameRef.current = undefined;
+      writeTrackOffset(dragOffsetRef.current);
+    });
+  };
+
+  const completeTransition = () => {
+    if (!transitioningRef.current) return;
+    transitioningRef.current = false;
+    if (transitionTimerRef.current !== undefined) window.clearTimeout(transitionTimerRef.current);
+    transitionTimerRef.current = undefined;
+    cancelAnimationFrame();
+    const delta = settlingDelta.current;
+    settlingDelta.current = 0;
+    const track = trackRef.current;
+    track?.classList.remove("settling");
+    dragOffsetRef.current = 0;
+    writeTrackOffset(0);
+    if (delta !== 0) onChangeWeek(delta);
+  };
 
   useLayoutEffect(() => {
     gestureRef.current = undefined;
     settlingDelta.current = 0;
     setSwiping(false);
-    setTransitioning(false);
+    transitioningRef.current = false;
+    if (transitionTimerRef.current !== undefined) window.clearTimeout(transitionTimerRef.current);
+    transitionTimerRef.current = undefined;
+    cancelAnimationFrame();
+    trackRef.current?.classList.remove("settling");
     dragOffsetRef.current = 0;
-    setDragOffset(0);
+    writeTrackOffset(0);
   }, [view.week]);
 
+  useEffect(() => () => {
+    cancelAnimationFrame();
+    if (transitionTimerRef.current !== undefined) window.clearTimeout(transitionTimerRef.current);
+  }, []);
+
   const beginSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!event.isPrimary || event.pointerType === "mouse" || transitioning) return;
+    if (!event.isPrimary || event.pointerType === "mouse" || transitioningRef.current) return;
     if ((event.target as HTMLElement).closest(".course-card")) return;
     gestureRef.current = {
       pointerId: event.pointerId,
@@ -82,7 +133,7 @@ export function WeekCalendar({
 
   const moveSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
     const gesture = gestureRef.current;
-    if (!gesture || gesture.pointerId !== event.pointerId || transitioning) return;
+    if (!gesture || gesture.pointerId !== event.pointerId || transitioningRef.current) return;
     const deltaX = event.clientX - gesture.startX;
     const deltaY = event.clientY - gesture.startY;
     if (!gesture.horizontal) {
@@ -97,13 +148,13 @@ export function WeekCalendar({
     }
     event.preventDefault();
     const elapsed = Math.max(1, event.timeStamp - gesture.lastAt);
-    gesture.velocity = (event.clientX - gesture.lastX) / elapsed;
+    const instantVelocity = (event.clientX - gesture.lastX) / elapsed;
+    gesture.velocity = gesture.velocity === 0 ? instantVelocity : gesture.velocity * .55 + instantVelocity * .45;
     gesture.lastX = event.clientX;
     gesture.lastAt = event.timeStamp;
     const width = viewportRef.current?.clientWidth ?? window.innerWidth;
     const nextOffset = resistedWeekOffset(deltaX, width, canGoPrevious, canGoNext);
-    dragOffsetRef.current = nextOffset;
-    setDragOffset(nextOffset);
+    scheduleTrackOffset(nextOffset);
   };
 
   const finishSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -120,26 +171,29 @@ export function WeekCalendar({
       canNext: canGoNext,
     });
     settlingDelta.current = delta;
-    setTransitioning(true);
+    transitioningRef.current = true;
     setSwiping(false);
-    dragOffsetRef.current = delta === 1 ? -width : delta === -1 ? width : 0;
-    setDragOffset(delta === 1 ? -width : delta === -1 ? width : 0);
+    cancelAnimationFrame();
+    writeTrackOffset(dragOffsetRef.current);
+    const targetOffset = delta === 1 ? -width : delta === -1 ? width : 0;
+    const remainingRatio = Math.min(1, Math.abs(targetOffset - dragOffsetRef.current) / Math.max(1, width));
+    const duration = Math.round(MIN_PAGE_TRANSITION_MS + (MAX_PAGE_TRANSITION_MS - MIN_PAGE_TRANSITION_MS) * remainingRatio);
+    const track = trackRef.current;
+    track?.style.setProperty("--week-duration", `${duration}ms`);
+    track?.classList.add("settling");
+    void track?.offsetWidth;
+    animationFrameRef.current = window.requestAnimationFrame(() => {
+      animationFrameRef.current = undefined;
+      dragOffsetRef.current = targetOffset;
+      writeTrackOffset(targetOffset);
+    });
+    transitionTimerRef.current = window.setTimeout(completeTransition, duration + 100);
   };
 
   const finishTransition = (event: ReactTransitionEvent<HTMLDivElement>) => {
-    if (event.target !== event.currentTarget || event.propertyName !== "transform" || !transitioning) return;
-    const delta = settlingDelta.current;
-    settlingDelta.current = 0;
-    if (delta !== 0) onChangeWeek(delta);
-    setTransitioning(false);
-    dragOffsetRef.current = 0;
-    setDragOffset(0);
+    if (event.target !== event.currentTarget || event.propertyName !== "transform") return;
+    completeTransition();
   };
-
-  const trackStyle = {
-    transform: `translate3d(calc(-100% + ${dragOffset}px), 0, 0)`,
-    transition: transitioning ? `transform ${PAGE_TRANSITION_MS}ms cubic-bezier(.2,.78,.2,1)` : "none",
-  } as CSSProperties;
 
   return (
     <div
@@ -150,7 +204,7 @@ export function WeekCalendar({
       onPointerUp={finishSwipe}
       onPointerCancel={finishSwipe}
     >
-      <div className="week-swipe-track" style={trackStyle} onTransitionEnd={finishTransition}>
+      <div ref={trackRef} className="week-swipe-track" onTransitionEnd={finishTransition}>
         <div className="calendar-scroll week-page" aria-hidden="true">
           <CalendarGrid view={previousView} preset={preset} interactive={false} />
         </div>
@@ -209,7 +263,8 @@ function CalendarGrid({ view, preset, selectedId, interactive, onSelect, onMove,
             style={{ gridColumn: day + 1, gridRow: 1 }}
             key={day}
           >
-            <span>{dayNames[day - 1]}</span>
+            <span className="day-name-long">{dayNames[day - 1]}</span>
+            <span className="day-name-short" aria-hidden="true">{shortDayNames[day - 1]}</span>
             <strong>{date.getMonth() + 1}/{date.getDate()}</strong>
           </div>
         );
@@ -280,26 +335,32 @@ interface CalendarCellProps {
 
 function CalendarCell({ style, label, onCreate, onMove }: CalendarCellProps) {
   const timerRef = useRef<number | undefined>(undefined);
+  const feedbackTimerRef = useRef<number | undefined>(undefined);
   const originRef = useRef<{ x: number; y: number } | undefined>(undefined);
+  const pointerRef = useRef<number | undefined>(undefined);
   const firedRef = useRef(false);
   const [pressing, setPressing] = useState(false);
 
   const cancelPress = () => {
     if (timerRef.current !== undefined) window.clearTimeout(timerRef.current);
+    if (feedbackTimerRef.current !== undefined) window.clearTimeout(feedbackTimerRef.current);
     timerRef.current = undefined;
+    feedbackTimerRef.current = undefined;
     originRef.current = undefined;
+    pointerRef.current = undefined;
     setPressing(false);
   };
 
   useEffect(() => () => {
     if (timerRef.current !== undefined) window.clearTimeout(timerRef.current);
+    if (feedbackTimerRef.current !== undefined) window.clearTimeout(feedbackTimerRef.current);
   }, []);
 
   const triggerCreate = () => {
     if (!onCreate || firedRef.current) return;
     firedRef.current = true;
     cancelPress();
-    navigator.vibrate?.(18);
+    navigator.vibrate?.(24);
     onCreate();
   };
 
@@ -309,25 +370,27 @@ function CalendarCell({ style, label, onCreate, onMove }: CalendarCellProps) {
       tabIndex={onCreate ? 0 : -1}
       className={`calendar-cell ${pressing ? "long-pressing" : ""}`}
       style={style}
-      aria-label={onCreate ? `${label}，长按添加课程` : label}
+      aria-label={onCreate ? `${label}，按住约 0.8 秒添加课程` : label}
       onPointerDown={(event) => {
         if (!onCreate || event.button !== 0) return;
+        cancelPress();
         firedRef.current = false;
+        pointerRef.current = event.pointerId;
         originRef.current = { x: event.clientX, y: event.clientY };
-        setPressing(true);
-        timerRef.current = window.setTimeout(triggerCreate, 520);
+        feedbackTimerRef.current = window.setTimeout(() => setPressing(true), LONG_PRESS_FEEDBACK_MS);
+        timerRef.current = window.setTimeout(triggerCreate, LONG_PRESS_DELAY_MS);
       }}
       onPointerMove={(event) => {
         const origin = originRef.current;
-        if (!origin) return;
-        if (Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > 10) cancelPress();
+        if (!origin || pointerRef.current !== event.pointerId) return;
+        if (shouldCancelLongPress(origin, { x: event.clientX, y: event.clientY })) cancelPress();
       }}
       onPointerUp={cancelPress}
       onPointerCancel={cancelPress}
       onPointerLeave={(event) => { if (event.pointerType === "mouse") cancelPress(); }}
       onContextMenu={(event) => {
         event.preventDefault();
-        triggerCreate();
+        cancelPress();
       }}
       onClick={(event) => {
         if (event.detail === 0) triggerCreate();

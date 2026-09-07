@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type UIEvent as ReactUIEvent } from "react";
 import { academicPositionForDate, agendaCourseState, coursesForAcademicDate, sameLocalDate } from "../domain/dayAgenda";
 import type { ResolvedAcademicCalendar } from "../domain/academicCalendar";
 import type { CourseMeeting, DayOfWeek, TimetablePreset } from "../domain/schedule";
@@ -21,20 +21,66 @@ export function TodayAgenda({ courses, preset, calendar, onSelect, onCreate, onO
   const [selectedDate, setSelectedDate] = useState(() => atNoon(new Date()));
   const [direction, setDirection] = useState<"previous" | "next">("next");
   const pointerRef = useRef<{ id: number; x: number; y: number } | undefined>(undefined);
+  const dateStripRef = useRef<HTMLDivElement>(null);
+  const dateStripTimerRef = useRef<number | undefined>(undefined);
+  const centerDateStripRef = useRef(true);
   const position = academicPositionForDate(selectedDate, calendar);
   const dayCourses = useMemo(() => coursesForAcademicDate(courses, calendar, selectedDate), [calendar, courses, selectedDate]);
-  const dateStrip = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(selectedDate, index - 3)), [selectedDate]);
+  const dateStrip = useMemo(() => buildDateStrip(calendar.weekOneStartsOn, selectedDate), [calendar.weekOneStartsOn, selectedDate]);
   const isToday = sameLocalDate(selectedDate, new Date());
 
-  const goToDate = (date: Date) => {
+  const goToDate = (date: Date, centerDateStrip = true) => {
+    centerDateStripRef.current = centerDateStrip;
     setDirection(date.getTime() < selectedDate.getTime() ? "previous" : "next");
     setSelectedDate(atNoon(date));
   };
 
   const shiftDay = (delta: -1 | 1) => goToDate(addDays(selectedDate, delta));
 
+  useLayoutEffect(() => {
+    if (!centerDateStripRef.current) {
+      centerDateStripRef.current = true;
+      return;
+    }
+    const strip = dateStripRef.current;
+    const active = strip?.querySelector<HTMLElement>('[aria-current="date"]');
+    if (!strip || !active) return;
+    strip.scrollTo({
+      left: active.offsetLeft - (strip.clientWidth - active.offsetWidth) / 2,
+      behavior: strip.dataset.ready === "true" ? "smooth" : "auto",
+    });
+    strip.dataset.ready = "true";
+  }, [selectedDate, dateStrip]);
+
+  useEffect(() => () => {
+    if (dateStripTimerRef.current !== undefined) window.clearTimeout(dateStripTimerRef.current);
+  }, []);
+
+  const selectCenteredDate = (event: ReactUIEvent<HTMLDivElement>) => {
+    if (dateStripTimerRef.current !== undefined) window.clearTimeout(dateStripTimerRef.current);
+    const strip = event.currentTarget;
+    dateStripTimerRef.current = window.setTimeout(() => {
+      const center = strip.scrollLeft + strip.clientWidth / 2;
+      let closest: HTMLButtonElement | undefined;
+      let closestDistance = Number.POSITIVE_INFINITY;
+      strip.querySelectorAll<HTMLButtonElement>("button[data-date-time]").forEach((button) => {
+        const distance = Math.abs(button.offsetLeft + button.offsetWidth / 2 - center);
+        if (distance < closestDistance) {
+          closest = button;
+          closestDistance = distance;
+        }
+      });
+      const timestamp = Number(closest?.dataset.dateTime);
+      if (Number.isFinite(timestamp)) {
+        const date = new Date(timestamp);
+        if (!sameLocalDate(date, selectedDate)) goToDate(date, false);
+      }
+    }, 120);
+  };
+
   const beginSwipe = (event: ReactPointerEvent<HTMLElement>) => {
-    if (!event.isPrimary || event.pointerType === "mouse" || (event.target as HTMLElement).closest("button")) return;
+    const target = event.target as HTMLElement;
+    if (!event.isPrimary || event.pointerType === "mouse" || target.closest(".date-strip") || target.closest("button")) return;
     pointerRef.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
   };
 
@@ -57,11 +103,11 @@ export function TodayAgenda({ courses, preset, calendar, onSelect, onCreate, onO
         </div>
       </header>
 
-      <div className="date-strip" aria-label="日期选择">
+      <div ref={dateStripRef} className="date-strip" aria-label="可左右滑动的日期选择" onScroll={selectCenteredDate}>
         {dateStrip.map((date) => {
           const active = sameLocalDate(date, selectedDate);
           const today = sameLocalDate(date, new Date());
-          return <button key={dateKey(date)} className={`${active ? "active" : ""} ${today ? "today" : ""}`} onClick={() => goToDate(date)}><span>{weekNames[date.getDay()].slice(1)}</span><strong>{date.getDate()}</strong><i /></button>;
+          return <button key={dateKey(date)} data-date-time={date.getTime()} aria-current={active ? "date" : undefined} className={`${active ? "active" : ""} ${today ? "today" : ""}`} onClick={() => goToDate(date)}><span>{weekNames[date.getDay()].slice(1)}</span><strong>{date.getDate()}</strong><i /></button>;
         })}
       </div>
 
@@ -89,7 +135,7 @@ export function TodayAgenda({ courses, preset, calendar, onSelect, onCreate, onO
         )}
       </div>
 
-      <div className="today-swipe-hint"><Icon name="chevron-left" />在空白区域左右滑动切换日期<Icon name="chevron-right" /></div>
+      <div className="today-swipe-hint"><Icon name="chevron-left" />滑动上方日期条或空白区域切换日期<Icon name="chevron-right" /></div>
     </section>
   );
 }
@@ -98,6 +144,17 @@ function addDays(date: Date, amount: number): Date {
   const result = atNoon(date);
   result.setDate(result.getDate() + amount);
   return result;
+}
+
+function buildDateStrip(weekOneStartsOn: Date, selectedDate: Date): Date[] {
+  const termStart = addDays(weekOneStartsOn, -14);
+  const termEnd = addDays(weekOneStartsOn, 30 * 7 + 13);
+  const selected = atNoon(selectedDate);
+  const farOutsideTerm = selected.getTime() < addDays(termStart, -60).getTime() || selected.getTime() > addDays(termEnd, 60).getTime();
+  const start = farOutsideTerm ? addDays(selected, -31) : selected.getTime() < termStart.getTime() ? addDays(selected, -14) : termStart;
+  const end = farOutsideTerm ? addDays(selected, 31) : selected.getTime() > termEnd.getTime() ? addDays(selected, 14) : termEnd;
+  const count = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+  return Array.from({ length: count }, (_, index) => addDays(start, index));
 }
 
 function atNoon(date: Date): Date {

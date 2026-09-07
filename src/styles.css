@@ -435,13 +435,14 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79, 99, 217,
 .view-stage { display: flex; min-height: 0; flex: 1; flex-direction: column; contain: layout style; animation: view-stage-in .24s cubic-bezier(.2, 0, 0, 1) both; }
 .today-view-stage { padding: 0 18px 18px 28px; }
 .today-workspace { padding: 0; }
-.today-panel { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; border: 1px solid var(--outline); border-radius: 24px; background: var(--surface); box-shadow: 0 4px 18px rgba(41,47,73,.05); touch-action: pan-y; }
+.today-panel { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; border: 1px solid var(--outline); border-radius: 24px; background: var(--surface); box-shadow: 0 4px 18px rgba(41,47,73,.05); touch-action: manipulation; }
 .today-hero { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 25px 27px 18px; }
 .today-hero h2 { margin: 4px 0 5px; font-size: 24px; letter-spacing: -.035em; }
 .today-hero p { margin: 0; color: var(--muted); font-size: 11px; }
 .today-hero-actions { display: flex; gap: 8px; }
-.date-strip { display: grid; grid-template-columns: repeat(7, minmax(52px, 1fr)); gap: 7px; padding: 0 25px 18px; }
-.date-strip button { position: relative; display: flex; min-height: 68px; flex-direction: column; align-items: center; justify-content: center; gap: 6px; border-radius: 18px; color: #737885; background: var(--surface-soft); transition: color .2s cubic-bezier(.2,0,0,1), background .2s cubic-bezier(.2,0,0,1), transform .2s cubic-bezier(.2,0,0,1), box-shadow .2s ease; }
+.date-strip { display: flex; min-width: 0; gap: 7px; padding: 0 25px 18px; overflow-x: auto; overflow-y: hidden; scroll-behavior: smooth; scroll-padding-inline: 25px; scroll-snap-type: x mandatory; overscroll-behavior-inline: contain; scrollbar-width: none; touch-action: pan-x; -webkit-overflow-scrolling: touch; }
+.date-strip::-webkit-scrollbar { display: none; }
+.date-strip button { position: relative; display: flex; min-width: 52px; min-height: 68px; flex: 0 0 calc((100% - 42px) / 7); flex-direction: column; align-items: center; justify-content: center; gap: 6px; border-radius: 18px; color: #737885; background: var(--surface-soft); scroll-snap-align: center; scroll-snap-stop: normal; transition: color .2s cubic-bezier(.2,0,0,1), background .2s cubic-bezier(.2,0,0,1), transform .2s cubic-bezier(.2,0,0,1), box-shadow .2s ease; }
 .date-strip button:hover { transform: translateY(-2px); }
 .date-strip button span { font-size: 9px; font-weight: 650; }
 .date-strip button strong { font-size: 17px; font-variant-numeric: tabular-nums; }
@@ -449,7 +450,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79, 99, 217,
 .date-strip button.today i { background: var(--primary); }
 .date-strip button.active { color: white; background: var(--primary); box-shadow: 0 8px 20px rgba(79,99,217,.24); transform: translateY(-2px); }
 .date-strip button.active i { background: white; }
-.today-agenda-list { min-height: 0; flex: 1; padding: 5px 25px 20px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; will-change: transform, opacity; }
+.today-agenda-list { min-height: 0; flex: 1; padding: 5px 25px 20px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; touch-action: pan-y; will-change: transform, opacity; }
 .today-agenda-list.slide-next { animation: agenda-next .26s cubic-bezier(.2,0,0,1) both; }
 .today-agenda-list.slide-previous { animation: agenda-previous .26s cubic-bezier(.2,0,0,1) both; }
 .agenda-course { display: grid; width: 100%; grid-template-columns: 68px 4px minmax(0,1fr) 20px; align-items: center; gap: 15px; margin-bottom: 10px; padding: 15px 17px; text-align: left; border: 1px solid color-mix(in srgb, var(--course-accent) 15%, var(--outline)); border-radius: 18px; color: #303641; background: color-mix(in srgb, var(--course-bg) 42%, white); box-shadow: 0 3px 12px rgba(35,40,65,.035); transition: transform .2s cubic-bezier(.2,0,0,1), box-shadow .2s ease, border-color .2s ease; }
@@ -811,8 +812,8 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79, 99, 217,
   .today-hero p { font-size: 9px; }
   .today-hero-actions { gap: 4px; }
   .today-hero-actions .soft-button { height: 34px; padding: 0 10px; border-radius: 17px; font-size: 9px; }
-  .date-strip { gap: 4px; padding: 0 11px 13px; }
-  .date-strip button { min-width: 0; min-height: 58px; gap: 4px; border-radius: 16px; }
+  .date-strip { gap: 4px; padding: 0 11px 13px; scroll-padding-inline: 11px; }
+  .date-strip button { min-width: 44px; min-height: 58px; flex-basis: calc((100% - 24px) / 7); gap: 4px; border-radius: 16px; }
   .date-strip button strong { font-size: 15px; }
   .date-strip button.active { box-shadow: 0 6px 15px rgba(79,99,217,.21); }
   .today-agenda-list { padding: 3px 11px 12px; }

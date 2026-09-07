@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { LocalAccountProfile } from "../domain/account";
 import { alignImportedWeeks, inferStudentGrade, suggestAcademicCalendar } from "../domain/academicCalendar";
 import type { CourseMeeting, ScheduleSnapshot, StudentGrade } from "../domain/schedule";
@@ -10,6 +10,10 @@ import { parseZhengfangSchedule, type ScheduleAdapterResult } from "../importing
 import { fetchSchoolSchedule, getSchoolLoginStatus, hideSchoolLogin, openSchoolLogin } from "../platform/tauriBridge";
 import { getRuntimeCapabilities } from "../platform/runtime";
 import { Icon } from "../ui/Icon";
+
+export interface ImportWizardHandle {
+  goBack: () => void;
+}
 
 interface ImportWizardProps {
   activeAccountId?: string;
@@ -27,7 +31,7 @@ interface ImportWizardProps {
 
 type LoginState = "idle" | "opening" | "checking" | "connected";
 
-export function ImportWizard({ activeAccountId, onImported, onRestore, onStartManual, onClose }: ImportWizardProps) {
+export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(function ImportWizard({ activeAccountId, onImported, onRestore, onStartManual, onClose }, ref) {
   const [step, setStep] = useState(1);
   const [schoolUrl, setSchoolUrl] = useState(schoolCatalog[0].loginUrl ?? "");
   const [urlError, setUrlError] = useState<string>();
@@ -76,6 +80,13 @@ export function ImportWizard({ activeAccountId, onImported, onRestore, onStartMa
     loginName: accountLoginName,
     studentGrade,
   }), [accountLoginName, academicYear, school.id, semester, studentGrade]);
+
+  const goBack = useCallback(() => {
+    if (step > 1) setStep((current) => Math.max(1, current - 1));
+    else onClose();
+  }, [onClose, step]);
+
+  useImperativeHandle(ref, () => ({ goBack }), [goBack]);
 
   const applyCalendarSuggestion = (nextYear: number, nextSemester: 1 | 2, nextGrade: StudentGrade, schoolId = school.id) => {
     const suggestion = suggestAcademicCalendar({ schoolId, academicYear: nextYear, semester: nextSemester, studentGrade: nextGrade });
@@ -348,7 +359,7 @@ export function ImportWizard({ activeAccountId, onImported, onRestore, onStartMa
         </div>
 
         <footer className="dialog-footer wizard-footer">
-          <button className="cancel-button" onClick={() => step > 1 ? setStep((current) => current - 1) : onClose()}>{step > 1 ? "上一步" : "取消"}</button>
+          <button className="cancel-button" onClick={goBack}>{step > 1 ? "上一步" : "取消"}</button>
           {step === 1 && <button className="primary-button" disabled={!schoolUrl.trim()} onClick={continueFromSchoolUrl}>继续<Icon name="arrow-right" /></button>}
           {step === 2 && loginState === "idle" && (loginCapable
             ? <button className="primary-button" disabled={accountsLoading || (selectedAccountId === "new" && !loginName.trim())} onClick={() => void launchLogin()}>{accountsLoading ? "正在读取账号…" : embeddedLogin ? "进入学校登录" : "打开内置浏览器"}</button>
@@ -362,4 +373,4 @@ export function ImportWizard({ activeAccountId, onImported, onRestore, onStartMa
       </section>
     </div>
   );
-}
+});

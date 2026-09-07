@@ -3,7 +3,7 @@ import { CourseDetails } from "./components/CourseDetails";
 import { CourseEditorDialog, type CourseDraftSlot } from "./components/CourseEditorDialog";
 import { EmptySchedule } from "./components/EmptySchedule";
 import { ExportDialog } from "./components/ExportDialog";
-import { ImportWizard } from "./components/ImportWizard";
+import { ImportWizard, type ImportWizardHandle } from "./components/ImportWizard";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
 import { SyncReviewDialog } from "./components/SyncReviewDialog";
@@ -15,6 +15,8 @@ import type { CourseMeeting, DayOfWeek, ScheduleSnapshot, TimetablePreset } from
 import { activePreset, buildWeekView, formatWeekRange, moveMeeting } from "./domain/scheduleEngine";
 import { DEFAULT_TEACHING_START_KEY, DEFAULT_TERM_START_KEY, normalizeTeachingStartKey, normalizeTermStartKey } from "./domain/termDate";
 import { parseZhengfangSchedule } from "./importing/zhengfangAdapter";
+import { resolveAppBackDestination } from "./navigation/backNavigation";
+import { installAndroidBackHandler } from "./platform/androidBack";
 import { fetchSchoolSchedule, getSchoolLoginStatus, isTauriRuntime, loadScheduleSnapshot, prepareSchoolSession, saveScheduleSnapshot } from "./platform/tauriBridge";
 import { clearScheduledCourseNotifications, ensureNotificationPermission, replaceScheduledCourseNotifications, sendReminderTestNotification } from "./platform/notifications";
 import { getRuntimeCapabilities } from "./platform/runtime";
@@ -68,6 +70,8 @@ export function App() {
   const reminderSyncGeneration = useRef(0);
   const reminderSyncQueue = useRef<Promise<void>>(Promise.resolve());
   const [scheduledReminderCount, setScheduledReminderCount] = useState(0);
+  const importWizardRef = useRef<ImportWizardHandle>(null);
+  const appBackHandlerRef = useRef<() => void>(() => undefined);
   const capabilities = getRuntimeCapabilities();
 
   const calendar = useMemo(() => resolveAcademicCalendar(normalizeAcademicCalendar(snapshot)), [snapshot.schoolId, snapshot.academicYear, snapshot.semester, snapshot.studentGrade, snapshot.termStartsOn, snapshot.teachingStartsOn]);
@@ -83,6 +87,34 @@ export function App() {
     ? `${snapshot.academicYear}–${snapshot.academicYear + 1} 第${snapshot.semester === 1 ? "一" : "二"}学期`
     : "尚未选择学期";
 
+  appBackHandlerRef.current = () => {
+    const destination = resolveAppBackDestination({
+      syncReviewOpen: Boolean(syncPlan),
+      importOpen,
+      courseEditorOpen: Boolean(editingCourse),
+      exportOpen,
+      timetableOpen,
+      settingsOpen,
+      courseDetailsOpen: Boolean(selected),
+    });
+
+    if (destination === "sync-review") setSyncPlan(undefined);
+    else if (destination === "import") {
+      const wizard = importWizardRef.current;
+      if (wizard) wizard.goBack();
+      else setImportOpen(false);
+    }
+    else if (destination === "course-editor") {
+      setEditingCourse(undefined);
+      setNewCourseSlot(undefined);
+    } else if (destination === "export") setExportOpen(false);
+    else if (destination === "timetable") setTimetableOpen(false);
+    else if (destination === "settings") setSettingsOpen(false);
+    else if (destination === "course-details") setSelectedId(undefined);
+    else if (toast) setToast(undefined);
+    else setToast("已在课表首页，返回手势不会退出应用");
+  };
+
   useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
@@ -92,6 +124,25 @@ export function App() {
       // The active theme still applies even if storage is unavailable.
     }
   }, [theme]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let removeHandler: (() => void) | undefined;
+    void installAndroidBackHandler(capabilities.platform, () => appBackHandlerRef.current())
+      .then((remove) => {
+        if (cancelled) remove();
+        else removeHandler = remove;
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setToast(`系统返回手势接入失败：${error instanceof Error ? error.message : String(error)}`);
+        }
+      });
+    return () => {
+      cancelled = true;
+      removeHandler?.();
+    };
+  }, [capabilities.platform]);
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -504,6 +555,7 @@ export function App() {
 
       {importOpen && (
         <ImportWizard
+          ref={importWizardRef}
           activeAccountId={snapshot.accountId}
           onClose={() => setImportOpen(false)}
           onStartManual={() => {

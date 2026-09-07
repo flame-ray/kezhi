@@ -15,11 +15,16 @@ describe("schedule backup import", () => {
         academicYear: 2026,
         semester: 1,
         termStartsOn: "2026-09-14",
+        teachingStartsOn: "2026-09-17",
+        studentGrade: 1,
         lastSyncAt: "2026-08-31T00:00:00.000Z",
         reminderSettings: { enabled: true, defaultMinutes: 30 },
       },
       preset: defaultPresets[0],
-      termStartsOn: new Date(2026, 7, 31),
+      calendar: {
+        weekOneStartsOn: new Date(2026, 7, 31, 12),
+        teachingStartsOn: new Date(2026, 8, 17, 12),
+      },
       termName: "2026–2027 第一学期",
     });
     const restored = parseScheduleBackup(backup);
@@ -28,6 +33,8 @@ describe("schedule backup import", () => {
     expect(restored.academicYear).toBe(2026);
     expect(restored.semester).toBe(1);
     expect(restored.termStartsOn).toBe("2026-08-31");
+    expect(restored.teachingStartsOn).toBe("2026-09-17");
+    expect(restored.studentGrade).toBe(1);
     expect(restored.lastSyncAt).toBe("2026-08-31T00:00:00.000Z");
     expect(restored.reminderSettings).toEqual({ enabled: true, defaultMinutes: 30 });
   });

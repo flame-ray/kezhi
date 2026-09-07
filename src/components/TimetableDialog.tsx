@@ -1,11 +1,15 @@
-import type { TimetablePreset } from "../domain/schedule";
+import type { StudentGrade, TimetablePreset } from "../domain/schedule";
 import { Icon } from "../ui/Icon";
 
 interface TimetableDialogProps {
   presets: TimetablePreset[];
   activeId: string;
   termStartsOn: string;
+  teachingStartsOn: string;
+  studentGrade: StudentGrade;
+  onStudentGradeChange: (value: StudentGrade) => void;
   onTermStartChange: (value: string) => void;
+  onTeachingStartChange: (value: string) => void;
   onActivate: (id: string) => void;
   onChange: (preset: TimetablePreset) => void;
   onCreate: () => void;
@@ -16,7 +20,11 @@ export function TimetableDialog({
   presets,
   activeId,
   termStartsOn,
+  teachingStartsOn,
+  studentGrade,
+  onStudentGradeChange,
   onTermStartChange,
+  onTeachingStartChange,
   onActivate,
   onChange,
   onCreate,
@@ -32,12 +40,30 @@ export function TimetableDialog({
           <button className="icon-button" onClick={onClose}><Icon name="close" /></button>
         </header>
 
-        <div className="term-date-setting">
-          <div><strong>第 1 周周一</strong><span>周次、每日日期和日历导出都以此为准</span></div>
-          <label>
-            <Icon name="calendar" />
-            <input type="date" value={termStartsOn} onChange={(event) => onTermStartChange(event.target.value)} />
-          </label>
+        <div className="calendar-date-settings">
+          <div className="term-date-setting">
+            <div><strong>当前年级</strong><span>切换年级会自动采用对应校历，你仍可继续修改日期</span></div>
+            <label>
+              <Icon name="school" />
+              <select value={studentGrade} onChange={(event) => onStudentGradeChange(Number(event.target.value) as StudentGrade)}>
+                <option value={1}>大一</option><option value={2}>大二</option><option value={3}>大三</option><option value={4}>大四</option><option value={5}>大五 / 五年制</option>
+              </select>
+            </label>
+          </div>
+          <div className="term-date-setting">
+            <div><strong>第 1 周周一</strong><span>决定每一周与每天显示的日期</span></div>
+            <label>
+              <Icon name="calendar" />
+              <input type="date" value={termStartsOn} onChange={(event) => onTermStartChange(event.target.value)} />
+            </label>
+          </div>
+          <div className="term-date-setting">
+            <div><strong>正式上课日</strong><span>此前的格子不会显示课程、导出日历或安排提醒</span></div>
+            <label>
+              <Icon name="today" />
+              <input type="date" value={teachingStartsOn} min={termStartsOn} onChange={(event) => onTeachingStartChange(event.target.value)} />
+            </label>
+          </div>
         </div>
 
         <div className="preset-tabs">

@@ -1,4 +1,5 @@
 export type DayOfWeek = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+export type StudentGrade = 1 | 2 | 3 | 4 | 5;
 
 export type CourseStatus = "normal" | "changed" | "cancelled";
 
@@ -65,7 +66,9 @@ export interface ScheduleSnapshot {
   accountId?: string;
   academicYear?: number;
   semester?: 1 | 2;
+  studentGrade?: StudentGrade;
   termStartsOn?: string;
+  teachingStartsOn?: string;
   lastSyncAt?: string;
   reminderSettings?: ReminderSettings;
 }

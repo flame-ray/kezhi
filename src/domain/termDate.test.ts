@@ -6,7 +6,10 @@ describe("term date", () => {
   it("uses the reference timetable's first Monday by default", () => {
     expect(DEFAULT_TERM_START_KEY).toBe("2026-09-14");
     expect(suggestTermStartKey(2026, 1)).toBe("2026-09-14");
-    const weekFive = buildWeekView([], resolveTermStartDate(DEFAULT_TERM_START_KEY), 5);
+    const firstMonday = resolveTermStartDate(DEFAULT_TERM_START_KEY);
+    const weekFive = buildWeekView(
+      [], { weekOneStartsOn: firstMonday, teachingStartsOn: firstMonday }, 5,
+    );
     expect(weekFive.startsOn.getMonth() + 1).toBe(10);
     expect(weekFive.startsOn.getDate()).toBe(12);
   });

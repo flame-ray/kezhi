@@ -1,5 +1,5 @@
-import type { CourseColor, CourseMeeting, CourseStatus, DayOfWeek, ScheduleSnapshot, TimetablePreset } from "../domain/schedule";
-import { normalizeTermStartKey } from "../domain/termDate";
+import type { CourseColor, CourseMeeting, CourseStatus, DayOfWeek, ScheduleSnapshot, StudentGrade, TimetablePreset } from "../domain/schedule";
+import { normalizeTeachingStartKey, normalizeTermStartKey } from "../domain/termDate";
 import { normalizeReminderSettings } from "../reminders/reminderSchedule";
 
 const colors: CourseColor[] = ["blue", "teal", "coral", "violet", "rose", "amber", "indigo"];
@@ -28,6 +28,12 @@ export function parseScheduleBackup(text: string): ScheduleSnapshot {
   const activePresetId = presets.some((preset) => preset.id === requestedPreset) ? requestedPreset : presets[0].id;
 
   const nestedTermStart = isRecord(raw.term) ? raw.term.startsOn : undefined;
+  const nestedTeachingStart = isRecord(raw.term) ? raw.term.teachingStartsOn : undefined;
+  const termStartsOn = normalizeTermStartKey(typeof raw.termStartsOn === "string" ? raw.termStartsOn : typeof nestedTermStart === "string" ? nestedTermStart : undefined);
+  const rawTeachingStart = typeof raw.teachingStartsOn === "string" ? raw.teachingStartsOn : typeof nestedTeachingStart === "string" ? nestedTeachingStart : undefined;
+  const teachingStartsOn = rawTeachingStart
+    ? normalizeTeachingStartKey(rawTeachingStart, termStartsOn)
+    : undefined;
   return {
     courses,
     presets,
@@ -37,7 +43,9 @@ export function parseScheduleBackup(text: string): ScheduleSnapshot {
     accountId: safeIdentifier(raw.accountId),
     academicYear: numberInRange(raw.academicYear, 2000, 2100),
     semester: numberInRange(raw.semester, 1, 2) as 1 | 2 | undefined,
-    termStartsOn: normalizeTermStartKey(typeof raw.termStartsOn === "string" ? raw.termStartsOn : typeof nestedTermStart === "string" ? nestedTermStart : undefined),
+    studentGrade: numberInRange(raw.studentGrade, 1, 5) as StudentGrade | undefined,
+    termStartsOn,
+    teachingStartsOn,
     lastSyncAt: safeIsoDate(raw.lastSyncAt),
     reminderSettings: normalizeReminderSettings(raw.reminderSettings),
   };

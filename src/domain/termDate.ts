@@ -1,4 +1,5 @@
 export const DEFAULT_TERM_START_KEY = "2026-09-14";
+export const DEFAULT_TEACHING_START_KEY = "2026-09-17";
 
 const DATE_KEY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -19,6 +20,18 @@ export function normalizeTermStartKey(value: unknown): string {
 
 export function resolveTermStartDate(value: unknown): Date {
   return parseDateKey(normalizeTermStartKey(value)) ?? new Date(2026, 8, 14, 12);
+}
+
+export function normalizeTeachingStartKey(value: unknown, termStartsOn: unknown, fallback?: unknown): string {
+  const termStart = resolveTermStartDate(termStartsOn);
+  const selected = typeof value === "string" ? parseDateKey(value) : undefined;
+  const suggested = typeof fallback === "string" ? parseDateKey(fallback) : undefined;
+  const date = selected ?? suggested ?? termStart;
+  return toDateKey(date.getTime() < termStart.getTime() ? termStart : date);
+}
+
+export function resolveTeachingStartDate(value: unknown, termStartsOn: unknown): Date {
+  return parseDateKey(normalizeTeachingStartKey(value, termStartsOn)) ?? resolveTermStartDate(termStartsOn);
 }
 
 export function suggestTermStartKey(academicYear: number, semester: 1 | 2): string {

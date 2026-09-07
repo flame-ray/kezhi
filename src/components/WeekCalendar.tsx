@@ -1,4 +1,5 @@
 import {
+  memo,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -50,6 +51,9 @@ export function WeekCalendar({
 }: WeekCalendarProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
+  const previousPageRef = useRef<HTMLDivElement>(null);
+  const activePageRef = useRef<HTMLDivElement>(null);
+  const nextPageRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | undefined>(undefined);
   const transitionTimerRef = useRef<number | undefined>(undefined);
   const transitioningRef = useRef(false);
@@ -64,7 +68,10 @@ export function WeekCalendar({
   } | undefined>(undefined);
   const settlingDelta = useRef<WeekDelta>(0);
   const dragOffsetRef = useRef(0);
-  const [swiping, setSwiping] = useState(false);
+
+  const markSwiping = (active: boolean) => {
+    viewportRef.current?.classList.toggle("swiping", active);
+  };
 
   const cancelAnimationFrame = () => {
     if (animationFrameRef.current !== undefined) window.cancelAnimationFrame(animationFrameRef.current);
@@ -94,15 +101,19 @@ export function WeekCalendar({
     settlingDelta.current = 0;
     const track = trackRef.current;
     track?.classList.remove("settling");
+    markSwiping(false);
+    if (delta !== 0) {
+      onChangeWeek(delta);
+      return;
+    }
     dragOffsetRef.current = 0;
     writeTrackOffset(0);
-    if (delta !== 0) onChangeWeek(delta);
   };
 
   useLayoutEffect(() => {
     gestureRef.current = undefined;
     settlingDelta.current = 0;
-    setSwiping(false);
+    markSwiping(false);
     transitioningRef.current = false;
     if (transitionTimerRef.current !== undefined) window.clearTimeout(transitionTimerRef.current);
     transitionTimerRef.current = undefined;
@@ -120,6 +131,9 @@ export function WeekCalendar({
   const beginSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!event.isPrimary || event.pointerType === "mouse" || transitioningRef.current) return;
     if ((event.target as HTMLElement).closest(".course-card")) return;
+    const scrollTop = activePageRef.current?.scrollTop ?? 0;
+    if (previousPageRef.current) previousPageRef.current.scrollTop = scrollTop;
+    if (nextPageRef.current) nextPageRef.current.scrollTop = scrollTop;
     gestureRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -143,7 +157,7 @@ export function WeekCalendar({
       }
       if (Math.abs(deltaX) < 8) return;
       gesture.horizontal = true;
-      setSwiping(true);
+      markSwiping(true);
       event.currentTarget.setPointerCapture(event.pointerId);
     }
     event.preventDefault();
@@ -172,7 +186,7 @@ export function WeekCalendar({
     });
     settlingDelta.current = delta;
     transitioningRef.current = true;
-    setSwiping(false);
+    markSwiping(false);
     cancelAnimationFrame();
     writeTrackOffset(dragOffsetRef.current);
     const targetOffset = delta === 1 ? -width : delta === -1 ? width : 0;
@@ -198,17 +212,17 @@ export function WeekCalendar({
   return (
     <div
       ref={viewportRef}
-      className={`week-swipe-viewport ${swiping ? "swiping" : ""}`}
+      className="week-swipe-viewport"
       onPointerDown={beginSwipe}
       onPointerMove={moveSwipe}
       onPointerUp={finishSwipe}
       onPointerCancel={finishSwipe}
     >
       <div ref={trackRef} className="week-swipe-track" onTransitionEnd={finishTransition}>
-        <div className="calendar-scroll week-page" aria-hidden="true">
+        <div ref={previousPageRef} className="calendar-scroll week-page" aria-hidden="true">
           <CalendarGrid view={previousView} preset={preset} interactive={false} />
         </div>
-        <div className="calendar-scroll week-page active-page">
+        <div ref={activePageRef} className="calendar-scroll week-page active-page">
           <CalendarGrid
             view={view}
             preset={preset}
@@ -219,7 +233,7 @@ export function WeekCalendar({
             onCreate={onCreate}
           />
         </div>
-        <div className="calendar-scroll week-page" aria-hidden="true">
+        <div ref={nextPageRef} className="calendar-scroll week-page" aria-hidden="true">
           <CalendarGrid view={nextView} preset={preset} interactive={false} />
         </div>
       </div>
@@ -237,14 +251,14 @@ interface CalendarGridProps {
   onCreate?: (day: DayOfWeek, period: number) => void;
 }
 
-function CalendarGrid({ view, preset, selectedId, interactive, onSelect, onMove, onCreate }: CalendarGridProps) {
+const CalendarGrid = memo(function CalendarGrid({ view, preset, selectedId, interactive, onSelect, onMove, onCreate }: CalendarGridProps) {
   const meetings = view.days.flatMap((day) => day.meetings);
   const today = new Date();
   const rowCount = preset.periods.length;
 
   return (
     <div
-      className="calendar-grid"
+      className={`calendar-grid ${interactive ? "" : "preview-grid"}`}
       style={{ "--period-count": rowCount } as CSSProperties}
     >
       <div className="calendar-corner">
@@ -283,15 +297,19 @@ function CalendarGrid({ view, preset, selectedId, interactive, onSelect, onMove,
       ))}
 
       {view.days.flatMap(({ day, date }) =>
-        preset.periods.map((period) => (
-          <CalendarCell
-            style={{ gridColumn: day + 1, gridRow: period.index + 1 }}
-            key={`${day}-${period.index}`}
-            label={`${dayNames[day - 1]} ${dateLabel(date)} 第 ${period.index} 节`}
-            onCreate={interactive ? () => onCreate?.(day, period.index) : undefined}
-            onMove={interactive ? (id) => onMove?.(id, day, period.index) : undefined}
-          />
-        )),
+        preset.periods.map((period) => {
+          const style = { gridColumn: day + 1, gridRow: period.index + 1 };
+          if (!interactive) return <span className="calendar-cell preview-cell" style={style} key={`${day}-${period.index}`} />;
+          return (
+            <CalendarCell
+              style={style}
+              key={`${day}-${period.index}`}
+              label={`${dayNames[day - 1]} ${dateLabel(date)} 第 ${period.index} 节`}
+              onCreate={() => onCreate?.(day, period.index)}
+              onMove={(id) => onMove?.(id, day, period.index)}
+            />
+          );
+        }),
       )}
 
       {meetings.map((meeting) => {
@@ -324,7 +342,7 @@ function CalendarGrid({ view, preset, selectedId, interactive, onSelect, onMove,
       })}
     </div>
   );
-}
+});
 
 interface CalendarCellProps {
   style: CSSProperties;

@@ -1,4 +1,5 @@
 import type { CourseMeeting, ReminderSettings, TimetablePreset } from "../domain/schedule";
+import { dateForCourse, isTeachingDate, type ResolvedAcademicCalendar } from "../domain/academicCalendar";
 
 const MINUTE_MS = 60_000;
 const COURSE_NOTIFICATION_ID_MIN = 1_000_000_000;
@@ -37,7 +38,7 @@ export function effectiveReminderMinutes(course: CourseMeeting, settings: Remind
 export function buildReminderSchedule(
   courses: CourseMeeting[],
   preset: TimetablePreset,
-  termStartsOn: Date,
+  calendar: ResolvedAcademicCalendar,
   settings: ReminderSettings,
   now = new Date(),
   limit = 128,
@@ -51,7 +52,8 @@ export function buildReminderSchedule(
     if (minutesBefore <= 0 || !startTime) return [];
 
     return course.weeks.flatMap((week) => {
-      const startsAt = occurrenceDate(termStartsOn, week, course.day, startTime);
+      const startsAt = occurrenceDate(calendar, week, course.day, startTime);
+      if (!isTeachingDate(calendar, startsAt)) return [];
       const at = new Date(startsAt.getTime() - minutesBefore * MINUTE_MS);
       if (at.getTime() <= now.getTime()) return [];
       const key = `${course.id}:${week}:${course.day}:${startTime}:${minutesBefore}`;
@@ -77,18 +79,10 @@ export function buildReminderSchedule(
   });
 }
 
-function occurrenceDate(termStartsOn: Date, week: number, day: number, time: string): Date {
+function occurrenceDate(calendar: ResolvedAcademicCalendar, week: number, day: number, time: string): Date {
   const [hour, minute] = time.split(":").map(Number);
-  const date = new Date(
-    termStartsOn.getFullYear(),
-    termStartsOn.getMonth(),
-    termStartsOn.getDate(),
-    hour,
-    minute,
-    0,
-    0,
-  );
-  date.setDate(date.getDate() + (week - 1) * 7 + day - 1);
+  const date = dateForCourse(calendar, week, day);
+  date.setHours(hour, minute, 0, 0);
   return date;
 }
 

@@ -13,7 +13,9 @@ pub(crate) struct ScheduleSnapshot {
     pub account_id: Option<String>,
     pub academic_year: Option<u16>,
     pub semester: Option<u8>,
+    pub student_grade: Option<u8>,
     pub term_starts_on: Option<String>,
+    pub teaching_starts_on: Option<String>,
     pub last_sync_at: Option<String>,
     #[serde(default)]
     pub reminder_settings: ReminderSettings,
@@ -123,8 +125,8 @@ impl ScheduleStore {
             .execute(
                 "INSERT INTO schedule_state (
                     singleton, active_preset_id, school_name, school_id, account_id,
-                    academic_year, semester, term_starts_on, last_sync_at, reminders_enabled, default_reminder_minutes
-                 ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                    academic_year, semester, student_grade, term_starts_on, teaching_starts_on, last_sync_at, reminders_enabled, default_reminder_minutes
+                 ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                  ON CONFLICT(singleton) DO UPDATE SET
                     active_preset_id = excluded.active_preset_id,
                     school_name = excluded.school_name,
@@ -132,7 +134,9 @@ impl ScheduleStore {
                     account_id = excluded.account_id,
                     academic_year = excluded.academic_year,
                     semester = excluded.semester,
+                    student_grade = excluded.student_grade,
                     term_starts_on = excluded.term_starts_on,
+                    teaching_starts_on = excluded.teaching_starts_on,
                     last_sync_at = excluded.last_sync_at,
                     reminders_enabled = excluded.reminders_enabled,
                     default_reminder_minutes = excluded.default_reminder_minutes",
@@ -143,7 +147,9 @@ impl ScheduleStore {
                     snapshot.account_id,
                     snapshot.academic_year,
                     snapshot.semester,
+                    snapshot.student_grade,
                     snapshot.term_starts_on,
+                    snapshot.teaching_starts_on,
                     snapshot.last_sync_at,
                     snapshot.reminder_settings.enabled,
                     snapshot.reminder_settings.default_minutes,
@@ -309,6 +315,8 @@ fn migrate_schema(connection: &Connection) -> Result<(), String> {
             )
             .map_err(database_error)?;
     }
+    add_column_if_missing(connection, "schedule_state", "student_grade", "INTEGER")?;
+    add_column_if_missing(connection, "schedule_state", "teaching_starts_on", "TEXT")?;
     add_column_if_missing(
         connection,
         "schedule_state",
@@ -324,7 +332,7 @@ fn migrate_schema(connection: &Connection) -> Result<(), String> {
     add_column_if_missing(connection, "course_meetings", "reminder_minutes", "INTEGER")?;
     connection
         .execute(
-            "UPDATE schema_meta SET value = '4' WHERE key = 'schema_version'",
+            "UPDATE schema_meta SET value = '5' WHERE key = 'schema_version'",
             [],
         )
         .map_err(database_error)?;
@@ -351,7 +359,7 @@ fn add_column_if_missing(
 fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, String> {
     let state = connection
         .query_row(
-            "SELECT active_preset_id, school_name, school_id, account_id, academic_year, semester, term_starts_on, last_sync_at, reminders_enabled, default_reminder_minutes
+            "SELECT active_preset_id, school_name, school_id, account_id, academic_year, semester, student_grade, term_starts_on, teaching_starts_on, last_sync_at, reminders_enabled, default_reminder_minutes
              FROM schedule_state WHERE singleton = 1",
             [],
             |row| {
@@ -362,10 +370,12 @@ fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, St
                     row.get::<_, Option<String>>(3)?,
                     row.get::<_, Option<u16>>(4)?,
                     row.get::<_, Option<u8>>(5)?,
-                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<u8>>(6)?,
                     row.get::<_, Option<String>>(7)?,
-                    row.get::<_, bool>(8)?,
-                    row.get::<_, u16>(9)?,
+                    row.get::<_, Option<String>>(8)?,
+                    row.get::<_, Option<String>>(9)?,
+                    row.get::<_, bool>(10)?,
+                    row.get::<_, u16>(11)?,
                 ))
             },
         )
@@ -378,7 +388,9 @@ fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, St
         account_id,
         academic_year,
         semester,
+        student_grade,
         term_starts_on,
+        teaching_starts_on,
         last_sync_at,
         reminders_enabled,
         default_reminder_minutes,
@@ -495,7 +507,9 @@ fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, St
         account_id,
         academic_year,
         semester,
+        student_grade,
         term_starts_on,
+        teaching_starts_on,
         last_sync_at,
         reminder_settings: ReminderSettings {
             enabled: reminders_enabled,
@@ -530,11 +544,24 @@ fn validate_snapshot(snapshot: &ScheduleSnapshot) -> Result<(), String> {
         return Err("学年或学期无效".into());
     }
     if snapshot
+        .student_grade
+        .is_some_and(|grade| !(1..=5).contains(&grade))
+    {
+        return Err("当前年级无效".into());
+    }
+    if snapshot
         .term_starts_on
         .as_deref()
         .is_some_and(|value| !valid_date_key(value))
     {
         return Err("第1周日期无效".into());
+    }
+    if snapshot
+        .teaching_starts_on
+        .as_deref()
+        .is_some_and(|value| !valid_date_key(value))
+    {
+        return Err("正式上课日期无效".into());
     }
     if !(1..=180).contains(&snapshot.reminder_settings.default_minutes) {
         return Err("默认提醒时间无效".into());
@@ -686,7 +713,7 @@ CREATE TABLE IF NOT EXISTS schema_meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('schema_version', '4');
+INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('schema_version', '5');
 
 CREATE TABLE IF NOT EXISTS schedule_state (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -696,7 +723,9 @@ CREATE TABLE IF NOT EXISTS schedule_state (
     account_id TEXT,
     academic_year INTEGER,
     semester INTEGER,
+    student_grade INTEGER,
     term_starts_on TEXT,
+    teaching_starts_on TEXT,
     last_sync_at TEXT,
     reminders_enabled INTEGER NOT NULL DEFAULT 0,
     default_reminder_minutes INTEGER NOT NULL DEFAULT 15
@@ -789,7 +818,9 @@ mod tests {
             account_id: Some("account-1".into()),
             academic_year: Some(2026),
             semester: Some(1),
+            student_grade: Some(1),
             term_starts_on: Some("2026-09-14".into()),
+            teaching_starts_on: Some("2026-09-17".into()),
             last_sync_at: Some("2026-08-31T00:00:00.000Z".into()),
             reminder_settings: ReminderSettings {
                 enabled: true,
@@ -904,14 +935,14 @@ mod tests {
             .unwrap();
         assert_eq!(count, 1);
 
-        let reminder_columns: u8 = connection
+        let calendar_and_reminder_columns: u8 = connection
             .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('schedule_state') WHERE name IN ('reminders_enabled', 'default_reminder_minutes')",
+                "SELECT COUNT(*) FROM pragma_table_info('schedule_state') WHERE name IN ('student_grade', 'teaching_starts_on', 'reminders_enabled', 'default_reminder_minutes')",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(reminder_columns, 2);
+        assert_eq!(calendar_and_reminder_columns, 4);
     }
 
     #[test]

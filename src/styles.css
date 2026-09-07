@@ -92,8 +92,10 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79, 99, 217,
 .week-swipe-viewport { flex: 1; min-height: 0; overflow: hidden; touch-action: pan-y; }
 .week-swipe-track { display: flex; width: 100%; height: 100%; contain: layout style; backface-visibility: hidden; will-change: transform; transform: translate3d(calc(-100% + var(--week-drag, 0px)), 0, 0); transition: none; }
 .week-swipe-track.settling { transition: transform var(--week-duration, 260ms) cubic-bezier(.2, 0, 0, 1); }
-.week-page { flex: 0 0 100%; width: 100%; height: 100%; min-width: 0; contain: paint; backface-visibility: hidden; overscroll-behavior: contain; transform: translateZ(0); }
+.week-page { flex: 0 0 100%; width: 100%; height: 100%; min-width: 0; contain: layout paint style; backface-visibility: hidden; overscroll-behavior: contain; transform: translateZ(0); }
 .week-page:not(.active-page) { pointer-events: none; }
+.week-page:not(.active-page) .course-card { transition: none; }
+.preview-cell::after { display: none; }
 .week-swipe-viewport.swiping { cursor: grabbing; }
 .week-swipe-viewport.swiping .week-swipe-track { user-select: none; }
 .calendar-grid { display: grid; grid-template-columns: 72px repeat(7, minmax(112px, 1fr)); grid-template-rows: 62px repeat(var(--period-count), var(--calendar-row)); min-width: 890px; padding: 0 10px 10px 0; isolation: isolate; }
@@ -191,31 +193,32 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79, 99, 217,
 
 .dialog-backdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 28px; background: rgba(28,31,43,.28); backdrop-filter: blur(5px); animation: fade-in .18s ease both; }
 .dialog { display: flex; width: min(660px, 90vw); max-height: min(760px, 90vh); flex-direction: column; overflow: hidden; border: 1px solid rgba(255,255,255,.75); border-radius: 24px; background: #fff; box-shadow: 0 28px 80px rgba(32,37,59,.24); animation: dialog-in .26s cubic-bezier(.2,.85,.25,1) both; }
-.dialog-header { display: flex; justify-content: space-between; padding: 24px 26px 18px; }
+.dialog-header { display: flex; flex: 0 0 auto; justify-content: space-between; padding: 24px 26px 18px; }
 .eyebrow { color: var(--primary); font-size: 10px; font-weight: 750; letter-spacing: .1em; }
 .dialog-header h2 { margin: 5px 0 0; font-size: 21px; }
-.term-date-setting { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 26px 16px; padding: 13px 15px; border-radius: 13px; background: #f5f6fa; }
+.calendar-date-settings { display: flex; flex: 0 0 auto; flex-direction: column; }
+.term-date-setting { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 16px; margin: 0 26px 16px; padding: 13px 15px; border-radius: 13px; background: #f5f6fa; }
 .term-date-setting > div { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
 .term-date-setting strong { font-size: 12px; }
 .term-date-setting span { color: #9296a1; font-size: 9px; }
 .term-date-setting label { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; }
 .term-date-setting svg { width: 15px; color: var(--primary); }
-.term-date-setting input { height: 36px; padding: 0 9px; border: 1px solid #dfe2ea; border-radius: 9px; color: #343945; background: white; }
-.preset-tabs { display: flex; gap: 7px; padding: 0 26px 17px; overflow-x: auto; border-bottom: 1px solid var(--outline); }
+.term-date-setting input, .term-date-setting select { height: 36px; padding: 0 9px; border: 1px solid #dfe2ea; border-radius: 9px; color: #343945; background: white; }
+.preset-tabs { display: flex; flex: 0 0 auto; gap: 7px; padding: 0 26px 17px; overflow-x: auto; border-bottom: 1px solid var(--outline); }
 .preset-tabs button { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; height: 33px; padding: 0 12px; border-radius: 10px; color: #707580; background: #f0f2f7; }
 .preset-tabs button.active { color: #3447ba; font-weight: 650; background: #e6eaff; }
 .preset-tabs .add-preset { color: #4b58ad; background: transparent; box-shadow: inset 0 0 0 1px #d7daea; }
 .add-preset svg { width: 14px; }
-.preset-title-row { display: flex; align-items: center; justify-content: space-between; padding: 18px 26px 10px; }
+.preset-title-row { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; padding: 18px 26px 10px; }
 .preset-title-row input { min-width: 0; border: 0; color: #282c35; font-size: 17px; font-weight: 700; background: transparent; }
 .preset-title-row span { color: #989ca6; font-size: 10px; }
-.period-editor { display: flex; min-height: 0; flex-direction: column; gap: 6px; margin: 0 16px; padding: 0 10px 12px; overflow-y: auto; }
+.period-editor { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; gap: 6px; margin: 0 16px; padding: 0 10px 12px; overflow-y: auto; }
 .period-editor-row { display: grid; grid-template-columns: 32px 1fr 18px 1fr; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 12px; background: #f7f8fb; }
 .period-editor-row > strong { display: grid; place-items: center; width: 27px; height: 27px; border-radius: 9px; color: #4553b0; font-size: 11px; background: #e6eaff; }
 .period-editor-row > span { color: #afb2ba; text-align: center; }
 .period-editor-row label { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #9599a3; font-size: 9px; }
 .period-editor-row input { width: 94px; padding: 7px; border: 1px solid #dfe2ea; border-radius: 8px; color: #3e434d; font-size: 11px; background: white; }
-.dialog-footer { display: flex; align-items: center; justify-content: space-between; padding: 15px 26px 20px; border-top: 1px solid var(--outline); }
+.dialog-footer { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; padding: 15px 26px 20px; border-top: 1px solid var(--outline); }
 .dialog-footer > span { color: #999da6; font-size: 9px; }
 .dialog-footer .primary-button { height: 37px; padding: 0 22px; }
 
@@ -333,10 +336,16 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79, 99, 217,
 .analysis-checks .pending { color: #896125; background: #fff0d1; }
 .connection-stage > p { max-width: 520px; line-height: 1.65; }
 .term-fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; width: min(520px, 100%); margin-top: 20px; text-align: left; }
+.calendar-term-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .term-fields label { display: flex; flex-direction: column; gap: 6px; }
 .term-fields span { color: #6e7380; font-size: 9px; font-weight: 700; }
 .term-fields input, .term-fields select { height: 38px; padding: 0 10px; border: 1px solid #dfe2ea; border-radius: 10px; color: #343945; outline: none; background: white; }
 .term-fields input:focus, .term-fields select:focus { border-color: #8e9bea; box-shadow: 0 0 0 3px rgba(79,99,217,.11); }
+.calendar-recommendation { display: flex; align-items: center; gap: 9px; width: min(520px, 100%); margin-top: 11px; padding: 10px 12px; text-align: left; border-radius: 11px; color: #44615d; background: #eaf4f2; }
+.calendar-recommendation > svg { flex: 0 0 auto; width: 17px; color: #3f8b81; }
+.calendar-recommendation > span { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+.calendar-recommendation strong { font-size: 9px; }.calendar-recommendation small { color: #63807b; font-size: 8px; line-height: 1.4; }
+.calendar-recommendation button { flex: 0 0 auto; padding: 6px 8px; border-radius: 8px; color: #356f68; font-size: 8px; font-weight: 700; background: rgba(255,255,255,.7); }
 .read-error { max-width: 520px; margin-top: 13px; text-align: left; }
 
 .analyze-stage { display: flex; min-height: 360px; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
@@ -519,6 +528,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79, 99, 217,
   .workspace { display: block; min-height: 0; padding: 0 7px 7px; }
   .calendar-panel { height: 100%; border-radius: 18px; }
   .calendar-scroll { overscroll-behavior: contain; touch-action: pan-y; }
+  .day-heading { backdrop-filter: none; }
   .calendar-grid {
     grid-template-columns: 42px repeat(7, minmax(49px, 1fr));
     grid-template-rows: 54px repeat(var(--period-count), var(--calendar-row));
@@ -596,6 +606,8 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79, 99, 217,
   .period-editor-row label span { display: none; }
   .period-editor-row input { width: 100%; }
   .term-fields { width: 100%; grid-template-columns: 1fr; }
+  .calendar-term-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .calendar-term-fields label:last-child { grid-column: span 2; }
   .term-date-setting { align-items: stretch; flex-direction: column; margin-inline: 16px; }
   .review-summary > span { padding: 14px 6px; }
   .settings-body { padding: 0 18px 18px; }
@@ -769,8 +781,9 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79, 99, 217,
 :root[data-theme="dark"] .security-copy span { color: #83aaa5; }
 :root[data-theme="dark"] .account-session-field select, :root[data-theme="dark"] .account-session-field input { color: #eceef4; border-color: #3a3c45; background: #27292f; color-scheme: dark; }
 :root[data-theme="dark"] .saved-account-name { color: #b7bac4; background: #2a2c33; }
-:root[data-theme="dark"] .term-date-setting input { color: #eceef4; border-color: #3a3c45; background: #212228; color-scheme: dark; }
+:root[data-theme="dark"] .term-date-setting input, :root[data-theme="dark"] .term-date-setting select { color: #eceef4; border-color: #3a3c45; background: #212228; color-scheme: dark; }
 :root[data-theme="dark"] .term-fields input, :root[data-theme="dark"] .term-fields select { color: #eceef4; border-color: #3a3c45; background: #27292f; color-scheme: dark; }
+:root[data-theme="dark"] .calendar-recommendation { color: #9bd0c9; background: #263b39; }:root[data-theme="dark"] .calendar-recommendation small { color: #83aaa5; }:root[data-theme="dark"] .calendar-recommendation button { color: #b9ded9; background: #31504c; }
 :root[data-theme="dark"] .change-card, :root[data-theme="dark"] .version-choices label, :root[data-theme="dark"] .import-option { border-color: #393b44; }
 :root[data-theme="dark"] .version-choices label.selected { background: #2e334f; }
 :root[data-theme="dark"] .export-card, :root[data-theme="dark"] .print-card { border-color: #393b44; background: #27292f; }

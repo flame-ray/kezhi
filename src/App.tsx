@@ -10,9 +10,10 @@ import { SyncReviewDialog } from "./components/SyncReviewDialog";
 import { TimetableDialog } from "./components/TimetableDialog";
 import { WeekCalendar } from "./components/WeekCalendar";
 import { defaultPresets } from "./data/demo";
+import { alignImportedWeeks, normalizeAcademicCalendar, resolveAcademicCalendar, suggestAcademicCalendar } from "./domain/academicCalendar";
 import type { CourseMeeting, DayOfWeek, ScheduleSnapshot, TimetablePreset } from "./domain/schedule";
 import { activePreset, buildWeekView, formatWeekRange, moveMeeting } from "./domain/scheduleEngine";
-import { DEFAULT_TERM_START_KEY, normalizeTermStartKey, resolveTermStartDate } from "./domain/termDate";
+import { DEFAULT_TEACHING_START_KEY, DEFAULT_TERM_START_KEY, normalizeTeachingStartKey, normalizeTermStartKey } from "./domain/termDate";
 import { parseZhengfangSchedule } from "./importing/zhengfangAdapter";
 import { fetchSchoolSchedule, getSchoolLoginStatus, isTauriRuntime, loadScheduleSnapshot, prepareSchoolSession, saveScheduleSnapshot } from "./platform/tauriBridge";
 import { clearScheduledCourseNotifications, ensureNotificationPermission, replaceScheduledCourseNotifications, sendReminderTestNotification } from "./platform/notifications";
@@ -24,7 +25,7 @@ import { Icon } from "./ui/Icon";
 const STORAGE_KEY = "kezhi.schedule.prototype.v2";
 const THEME_KEY = "kezhi.appearance.theme";
 function normalizeSnapshot(snapshot: ScheduleSnapshot): ScheduleSnapshot {
-  return { ...snapshot, termStartsOn: normalizeTermStartKey(snapshot.termStartsOn), reminderSettings: normalizeReminderSettings(snapshot.reminderSettings) };
+  return { ...snapshot, ...normalizeAcademicCalendar(snapshot), reminderSettings: normalizeReminderSettings(snapshot.reminderSettings) };
 }
 type AppTheme = "light" | "dark";
 
@@ -35,7 +36,7 @@ function initialSnapshot(): ScheduleSnapshot {
   } catch {
     // A corrupt prototype snapshot should never prevent the app from opening.
   }
-  return normalizeSnapshot({ courses: [], presets: defaultPresets, activePresetId: "summer", termStartsOn: DEFAULT_TERM_START_KEY });
+  return normalizeSnapshot({ courses: [], presets: defaultPresets, activePresetId: "summer", studentGrade: 1, termStartsOn: DEFAULT_TERM_START_KEY, teachingStartsOn: DEFAULT_TEACHING_START_KEY });
 }
 
 function initialTheme(): AppTheme {
@@ -69,11 +70,11 @@ export function App() {
   const [scheduledReminderCount, setScheduledReminderCount] = useState(0);
   const capabilities = getRuntimeCapabilities();
 
-  const termStartsOn = useMemo(() => resolveTermStartDate(snapshot.termStartsOn), [snapshot.termStartsOn]);
-  const view = useMemo(() => buildWeekView(snapshot.courses, termStartsOn, week), [snapshot.courses, termStartsOn, week]);
+  const calendar = useMemo(() => resolveAcademicCalendar(normalizeAcademicCalendar(snapshot)), [snapshot.schoolId, snapshot.academicYear, snapshot.semester, snapshot.studentGrade, snapshot.termStartsOn, snapshot.teachingStartsOn]);
+  const view = useMemo(() => buildWeekView(snapshot.courses, calendar, week), [snapshot.courses, calendar, week]);
   const preset = activePreset(snapshot);
-  const previousView = useMemo(() => buildWeekView(snapshot.courses, termStartsOn, Math.max(1, week - 1)), [snapshot.courses, termStartsOn, week]);
-  const nextView = useMemo(() => buildWeekView(snapshot.courses, termStartsOn, Math.min(24, week + 1)), [snapshot.courses, termStartsOn, week]);
+  const previousView = useMemo(() => buildWeekView(snapshot.courses, calendar, Math.max(1, week - 1)), [snapshot.courses, calendar, week]);
+  const nextView = useMemo(() => buildWeekView(snapshot.courses, calendar, Math.min(24, week + 1)), [snapshot.courses, calendar, week]);
   const selected = snapshot.courses.find((course) => course.id === selectedId && course.weeks.includes(week));
   const reminderSettings = normalizeReminderSettings(snapshot.reminderSettings);
   const hasCourses = snapshot.courses.length > 0;
@@ -153,7 +154,7 @@ export function App() {
             if (generation === reminderSyncGeneration.current) setScheduledReminderCount(0);
             return;
           }
-          const reminders = buildReminderSchedule(snapshot.courses, preset, termStartsOn, reminderSettings);
+          const reminders = buildReminderSchedule(snapshot.courses, preset, calendar, reminderSettings);
           const count = await replaceScheduledCourseNotifications(reminders);
           if (generation === reminderSyncGeneration.current) setScheduledReminderCount(count);
         })
@@ -166,7 +167,7 @@ export function App() {
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [capabilities.native, preset, reminderSettings.enabled, reminderSettings.defaultMinutes, snapshot.courses, storageBackend, termStartsOn]);
+  }, [calendar, capabilities.native, preset, reminderSettings.enabled, reminderSettings.defaultMinutes, snapshot.courses, storageBackend]);
 
   const changeWeek = (next: number) => {
     const safeWeek = Math.min(24, Math.max(1, next));
@@ -226,7 +227,14 @@ export function App() {
         semester: snapshot.semester,
       });
       const official = parseZhengfangSchedule(payload.rows);
-      const plan = createScheduleSyncPlan(snapshot.courses, official.courses);
+      const recommendation = suggestAcademicCalendar({
+        schoolId: snapshot.schoolId,
+        academicYear: snapshot.academicYear,
+        semester: snapshot.semester,
+        studentGrade: snapshot.studentGrade,
+      });
+      const aligned = alignImportedWeeks(official.courses, recommendation.importWeekOffset);
+      const plan = createScheduleSyncPlan(snapshot.courses, aligned.courses);
       if (plan.changes.length === 0) {
         setSnapshot((current) => ({ ...current, lastSyncAt: plan.checkedAt }));
         if (interactive) setToast(`课表已是最新 · ${plan.unchangedCount} 条课程无变化`);
@@ -454,7 +462,25 @@ export function App() {
           presets={snapshot.presets}
           activeId={snapshot.activePresetId}
           termStartsOn={snapshot.termStartsOn ?? DEFAULT_TERM_START_KEY}
-          onTermStartChange={(value) => setSnapshot((current) => ({ ...current, termStartsOn: normalizeTermStartKey(value) }))}
+          teachingStartsOn={snapshot.teachingStartsOn ?? snapshot.termStartsOn ?? DEFAULT_TERM_START_KEY}
+          studentGrade={snapshot.studentGrade ?? 1}
+          onStudentGradeChange={(studentGrade) => setSnapshot((current) => {
+            const suggestion = suggestAcademicCalendar({
+              schoolId: current.schoolId,
+              academicYear: current.academicYear ?? 2026,
+              semester: current.semester ?? 1,
+              studentGrade,
+            });
+            return { ...current, studentGrade, termStartsOn: suggestion.termStartsOn, teachingStartsOn: suggestion.teachingStartsOn };
+          })}
+          onTermStartChange={(value) => setSnapshot((current) => {
+            const termStartsOn = normalizeTermStartKey(value);
+            return { ...current, termStartsOn, teachingStartsOn: normalizeTeachingStartKey(current.teachingStartsOn, termStartsOn) };
+          })}
+          onTeachingStartChange={(value) => setSnapshot((current) => ({
+            ...current,
+            teachingStartsOn: normalizeTeachingStartKey(value, current.termStartsOn),
+          }))}
           onActivate={(id) => setSnapshot((current) => ({ ...current, activePresetId: id }))}
           onChange={updatePreset}
           onCreate={createPreset}
@@ -494,7 +520,7 @@ export function App() {
             setSnapshot((current) => {
               const importedIds = new Set(importedCourses.map((course) => course.id));
               const localCourses = keepLocal ? current.courses.filter((course) => !importedIds.has(course.id)) : [];
-              return { ...current, schoolName: school.name, schoolId: school.id, accountId: account.id, academicYear: term.academicYear, semester: term.semester, termStartsOn: normalizeTermStartKey(term.termStartsOn), lastSyncAt: new Date().toISOString(), courses: [...localCourses, ...importedCourses] };
+              return { ...current, schoolName: school.name, schoolId: school.id, accountId: account.id, academicYear: term.academicYear, semester: term.semester, studentGrade: term.studentGrade, termStartsOn: normalizeTermStartKey(term.termStartsOn), teachingStartsOn: normalizeTeachingStartKey(term.teachingStartsOn, term.termStartsOn), lastSyncAt: new Date().toISOString(), courses: [...localCourses, ...importedCourses] };
             });
             setImportOpen(false);
             setToast(`已从${school.name}导入 ${importedCourses.length} 条课程`);
@@ -506,7 +532,7 @@ export function App() {
         <ExportDialog
           snapshot={snapshot}
           preset={preset}
-          termStartsOn={termStartsOn}
+          calendar={calendar}
           week={week}
           onClose={() => setExportOpen(false)}
           onExported={(message) => setToast(message)}

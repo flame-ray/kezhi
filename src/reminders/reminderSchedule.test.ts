@@ -24,6 +24,11 @@ const course: CourseMeeting = {
   color: "blue",
 };
 
+const calendar = {
+  weekOneStartsOn: new Date(2026, 8, 14, 12),
+  teachingStartsOn: new Date(2026, 8, 14, 12),
+};
+
 describe("course reminder schedule", () => {
   test("normalizes old snapshots and resolves per-course overrides", () => {
     const settings = normalizeReminderSettings({ enabled: true, defaultMinutes: 15 });
@@ -37,7 +42,7 @@ describe("course reminder schedule", () => {
     const reminders = buildReminderSchedule(
       [course],
       preset,
-      new Date(2026, 8, 14, 12),
+      calendar,
       { enabled: true, defaultMinutes: 15 },
       new Date(2026, 8, 13, 12),
     );
@@ -51,9 +56,21 @@ describe("course reminder schedule", () => {
 
   test("skips disabled, cancelled and past occurrences and caps the queue", () => {
     const now = new Date(2026, 8, 20, 12);
-    expect(buildReminderSchedule([course], preset, new Date(2026, 8, 14, 12), { enabled: false, defaultMinutes: 15 }, now)).toEqual([]);
-    expect(buildReminderSchedule([{ ...course, reminderMinutes: 0 }], preset, new Date(2026, 8, 14, 12), { enabled: true, defaultMinutes: 15 }, now)).toEqual([]);
-    expect(buildReminderSchedule([{ ...course, status: "cancelled" }], preset, new Date(2026, 8, 14, 12), { enabled: true, defaultMinutes: 15 }, now)).toEqual([]);
-    expect(buildReminderSchedule([course], preset, new Date(2026, 8, 14, 12), { enabled: true, defaultMinutes: 15 }, now, 1)).toHaveLength(1);
+    expect(buildReminderSchedule([course], preset, calendar, { enabled: false, defaultMinutes: 15 }, now)).toEqual([]);
+    expect(buildReminderSchedule([{ ...course, reminderMinutes: 0 }], preset, calendar, { enabled: true, defaultMinutes: 15 }, now)).toEqual([]);
+    expect(buildReminderSchedule([{ ...course, status: "cancelled" }], preset, calendar, { enabled: true, defaultMinutes: 15 }, now)).toEqual([]);
+    expect(buildReminderSchedule([course], preset, calendar, { enabled: true, defaultMinutes: 15 }, now, 1)).toHaveLength(1);
+  });
+
+  test("does not schedule freshman classes before the Thursday teaching start", () => {
+    const reminders = buildReminderSchedule(
+      [course],
+      preset,
+      { ...calendar, teachingStartsOn: new Date(2026, 8, 17, 12) },
+      { enabled: true, defaultMinutes: 15 },
+      new Date(2026, 8, 13, 12),
+    );
+    expect(reminders).toHaveLength(2);
+    expect(reminders[0].at).toEqual(new Date(2026, 8, 21, 8, 5));
   });
 });

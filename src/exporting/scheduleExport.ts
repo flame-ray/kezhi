@@ -1,7 +1,7 @@
 import type { CourseMeeting, ScheduleSnapshot, TimetablePreset } from "../domain/schedule";
+import { dateForCourse, isTeachingDate, type ResolvedAcademicCalendar } from "../domain/academicCalendar";
 import { effectiveReminderMinutes, normalizeReminderSettings } from "../reminders/reminderSchedule";
 
-const DAY_MS = 86_400_000;
 const colorMap: Record<CourseMeeting["color"], string> = {
   blue: "#4f84d9",
   teal: "#42a89c",
@@ -15,7 +15,7 @@ const colorMap: Record<CourseMeeting["color"], string> = {
 export interface ExportContext {
   snapshot: ScheduleSnapshot;
   preset: TimetablePreset;
-  termStartsOn: Date;
+  calendar: ResolvedAcademicCalendar;
   termName: string;
 }
 
@@ -24,8 +24,10 @@ export function buildScheduleJson(context: ExportContext): string {
     format: "kezhi-schedule",
     version: 1,
     exportedAt: new Date().toISOString(),
-    term: { name: context.termName, startsOn: toDateKey(context.termStartsOn) },
-    termStartsOn: toDateKey(context.termStartsOn),
+    term: { name: context.termName, startsOn: toDateKey(context.calendar.weekOneStartsOn), teachingStartsOn: toDateKey(context.calendar.teachingStartsOn) },
+    termStartsOn: toDateKey(context.calendar.weekOneStartsOn),
+    teachingStartsOn: toDateKey(context.calendar.teachingStartsOn),
+    studentGrade: context.snapshot.studentGrade,
     schoolName: context.snapshot.schoolName,
     schoolId: context.snapshot.schoolId,
     academicYear: context.snapshot.academicYear,
@@ -64,10 +66,11 @@ export function buildScheduleIcs(context: ExportContext): string {
     const endPeriod = context.preset.periods.find((period) => period.index === course.endPeriod);
     if (!startPeriod || !endPeriod) return [];
 
-    return course.weeks.map((week) => {
+    return course.weeks.flatMap((week) => {
       const reminderMinutes = settings.enabled ? effectiveReminderMinutes(course, settings) : 0;
-      const date = new Date(context.termStartsOn.getTime() + ((week - 1) * 7 + course.day - 1) * DAY_MS);
-      return [
+      const date = dateForCourse(context.calendar, week, course.day);
+      if (!isTeachingDate(context.calendar, date)) return [];
+      return [[
         "BEGIN:VEVENT",
         `UID:${icsEscape(`${course.id}-${week}@kezhi.local`)}`,
         `DTSTAMP:${stamp}`,
@@ -78,7 +81,7 @@ export function buildScheduleIcs(context: ExportContext): string {
         `DESCRIPTION:${icsEscape(`${course.teacher} · 第${course.startPeriod}-${course.endPeriod}节 · 第${week}周`)}`,
         ...(reminderMinutes > 0 ? ["BEGIN:VALARM", `TRIGGER:-PT${reminderMinutes}M`, "ACTION:DISPLAY", `DESCRIPTION:${icsEscape(course.title)} 即将上课`, "END:VALARM"] : []),
         "END:VEVENT",
-      ].join("\r\n");
+      ].join("\r\n")];
     });
   });
 
@@ -103,7 +106,6 @@ export function buildWeekSvg(context: ExportContext, week: number): string {
   const rowHeight = 76;
   const dayWidth = (width - left - 28) / 7;
   const height = header + context.preset.periods.length * rowHeight + 58;
-  const monday = new Date(context.termStartsOn.getTime() + (week - 1) * 7 * DAY_MS);
   const dayNames = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
   const grid = context.preset.periods.map((period, index) => {
@@ -113,11 +115,13 @@ export function buildWeekSvg(context: ExportContext, week: number): string {
 
   const columns = dayNames.map((name, index) => {
     const x = left + index * dayWidth;
-    const date = new Date(monday.getTime() + index * DAY_MS);
+    const date = dateForCourse(context.calendar, week, index + 1);
     return `<line x1="${x}" y1="${header}" x2="${x}" y2="${height - 42}" stroke="#eceef3"/><text x="${x + dayWidth / 2}" y="38" text-anchor="middle" font-size="15" font-weight="700" fill="#636875">${name}</text><text x="${x + dayWidth / 2}" y="61" text-anchor="middle" font-size="13" fill="#8d919c">${date.getMonth() + 1}/${date.getDate()}</text>`;
   }).join("");
 
-  const cards = context.snapshot.courses.filter((course) => course.weeks.includes(week)).map((course) => {
+  const cards = context.snapshot.courses.filter((course) => {
+    return course.weeks.includes(week) && isTeachingDate(context.calendar, dateForCourse(context.calendar, week, course.day));
+  }).map((course) => {
     const x = left + (course.day - 1) * dayWidth + 5;
     const y = header + (course.startPeriod - 1) * rowHeight + 5;
     const cardHeight = (course.endPeriod - course.startPeriod + 1) * rowHeight - 10;

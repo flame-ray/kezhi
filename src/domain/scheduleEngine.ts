@@ -5,26 +5,26 @@ import type {
   TimetablePreset,
   WeekView,
 } from "./schedule";
-
-const DAY_IN_MS = 86_400_000;
+import { dateForCourse, isTeachingDate, type ResolvedAcademicCalendar } from "./academicCalendar";
 
 export function buildWeekView(
   courses: CourseMeeting[],
-  termStartsOn: Date,
+  calendar: ResolvedAcademicCalendar,
   week: number,
 ): WeekView {
-  const startsOn = new Date(termStartsOn.getTime() + (week - 1) * 7 * DAY_IN_MS);
+  const startsOn = dateForCourse(calendar, week, 1);
 
   return {
     week,
     startsOn,
     days: Array.from({ length: 7 }, (_, index) => {
       const day = (index + 1) as DayOfWeek;
+      const date = dateForCourse(calendar, week, day);
       return {
         day,
-        date: new Date(startsOn.getTime() + index * DAY_IN_MS),
+        date,
         meetings: courses
-          .filter((course) => course.day === day && course.weeks.includes(week))
+          .filter((course) => isTeachingDate(calendar, date) && course.day === day && course.weeks.includes(week))
           .sort((a, b) => a.startPeriod - b.startPeriod),
       };
     }),

@@ -10,10 +10,15 @@ const context: ExportContext = {
     activePresetId: "summer",
     schoolName: "宁德师范学院",
     termStartsOn: "2026-09-14",
+    teachingStartsOn: "2026-08-31",
+    studentGrade: 2,
     reminderSettings: { enabled: true, defaultMinutes: 15 },
   },
   preset: defaultPresets[0],
-  termStartsOn: new Date(2026, 7, 31),
+  calendar: {
+    weekOneStartsOn: new Date(2026, 7, 31, 12),
+    teachingStartsOn: new Date(2026, 7, 31, 12),
+  },
   termName: "2026–2027 第一学期",
 };
 
@@ -32,6 +37,8 @@ describe("schedule export", () => {
     const backup = JSON.parse(buildScheduleJson(context));
     expect(backup.courses).toHaveLength(demoCourses.length);
     expect(backup.termStartsOn).toBe("2026-08-31");
+    expect(backup.teachingStartsOn).toBe("2026-08-31");
+    expect(backup.studentGrade).toBe(2);
     expect(backup.reminderSettings).toEqual({ enabled: true, defaultMinutes: 15 });
     expect(buildScheduleCsv(context)).toContain("提前15分钟");
   });

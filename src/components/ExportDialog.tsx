@@ -1,4 +1,5 @@
 import type { ScheduleSnapshot, TimetablePreset } from "../domain/schedule";
+import type { ResolvedAcademicCalendar } from "../domain/academicCalendar";
 import {
   buildScheduleCsv,
   buildScheduleIcs,
@@ -12,19 +13,21 @@ import { Icon } from "../ui/Icon";
 interface ExportDialogProps {
   snapshot: ScheduleSnapshot;
   preset: TimetablePreset;
-  termStartsOn: Date;
+  calendar: ResolvedAcademicCalendar;
   week: number;
   onClose: () => void;
   onPrint: () => void;
   onExported: (message: string) => void;
 }
 
-export function ExportDialog({ snapshot, preset, termStartsOn, week, onClose, onPrint, onExported }: ExportDialogProps) {
+export function ExportDialog({ snapshot, preset, calendar, week, onClose, onPrint, onExported }: ExportDialogProps) {
+  const academicYear = snapshot.academicYear ?? calendar.weekOneStartsOn.getFullYear();
+  const semester = snapshot.semester ?? 1;
   const context: ExportContext = {
     snapshot,
     preset,
-    termStartsOn,
-    termName: "2026–2027 第一学期",
+    calendar,
+    termName: `${academicYear}–${academicYear + 1} 第${semester === 1 ? "一" : "二"}学期`,
   };
 
   const exportItem = (kind: "ics" | "csv" | "json" | "svg") => {

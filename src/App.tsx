@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CourseDetails } from "./components/CourseDetails";
 import { CourseEditorDialog, type CourseDraftSlot } from "./components/CourseEditorDialog";
+import { CalendarImportDialog } from "./components/CalendarImportDialog";
 import { EmptySchedule } from "./components/EmptySchedule";
 import { ExportDialog } from "./components/ExportDialog";
 import { ImportWizard, type ImportWizardHandle } from "./components/ImportWizard";
@@ -8,13 +9,16 @@ import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
 import { SyncReviewDialog } from "./components/SyncReviewDialog";
 import { TimetableDialog } from "./components/TimetableDialog";
+import { TodayAgenda } from "./components/TodayAgenda";
 import { WeekCalendar } from "./components/WeekCalendar";
 import { defaultPresets } from "./data/demo";
 import { alignImportedWeeks, normalizeAcademicCalendar, resolveAcademicCalendar, suggestAcademicCalendar } from "./domain/academicCalendar";
+import { academicPositionForDate } from "./domain/dayAgenda";
 import type { CourseMeeting, DayOfWeek, ScheduleSnapshot, TimetablePreset } from "./domain/schedule";
 import { activePreset, buildWeekView, formatWeekRange, moveMeeting } from "./domain/scheduleEngine";
 import { DEFAULT_TEACHING_START_KEY, DEFAULT_TERM_START_KEY, normalizeTeachingStartKey, normalizeTermStartKey } from "./domain/termDate";
 import { parseZhengfangSchedule } from "./importing/zhengfangAdapter";
+import { mergeIcsCourses } from "./importing/icsImport";
 import { resolveAppBackDestination } from "./navigation/backNavigation";
 import { installAndroidBackHandler } from "./platform/androidBack";
 import { fetchSchoolSchedule, getSchoolLoginStatus, isTauriRuntime, loadScheduleSnapshot, prepareSchoolSession, saveScheduleSnapshot } from "./platform/tauriBridge";
@@ -30,6 +34,7 @@ function normalizeSnapshot(snapshot: ScheduleSnapshot): ScheduleSnapshot {
   return { ...snapshot, ...normalizeAcademicCalendar(snapshot), reminderSettings: normalizeReminderSettings(snapshot.reminderSettings) };
 }
 type AppTheme = "light" | "dark";
+type PrimaryPage = "课表" | "今天";
 
 function initialSnapshot(): ScheduleSnapshot {
   try {
@@ -53,11 +58,13 @@ function initialTheme(): AppTheme {
 
 export function App() {
   const [snapshot, setSnapshot] = useState<ScheduleSnapshot>(initialSnapshot);
+  const [activePage, setActivePage] = useState<PrimaryPage>("课表");
   const [week, setWeek] = useState(1);
   const [selectedId, setSelectedId] = useState<string>();
   const [timetableOpen, setTimetableOpen] = useState(false);
   const [editingCourse, setEditingCourse] = useState<CourseMeeting | "new">();
   const [importOpen, setImportOpen] = useState(false);
+  const [calendarImportOpen, setCalendarImportOpen] = useState(false);
   const [newCourseSlot, setNewCourseSlot] = useState<CourseDraftSlot>();
   const [exportOpen, setExportOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -79,7 +86,8 @@ export function App() {
   const preset = activePreset(snapshot);
   const previousView = useMemo(() => buildWeekView(snapshot.courses, calendar, Math.max(1, week - 1)), [snapshot.courses, calendar, week]);
   const nextView = useMemo(() => buildWeekView(snapshot.courses, calendar, Math.min(24, week + 1)), [snapshot.courses, calendar, week]);
-  const selected = snapshot.courses.find((course) => course.id === selectedId && course.weeks.includes(week));
+  const selected = snapshot.courses.find((course) => course.id === selectedId);
+  const currentAcademicWeek = Math.min(24, Math.max(1, academicPositionForDate(new Date(), calendar).week));
   const reminderSettings = normalizeReminderSettings(snapshot.reminderSettings);
   const hasCourses = snapshot.courses.length > 0;
   const isLocalSchedule = snapshot.schoolName === "本地课表";
@@ -91,11 +99,13 @@ export function App() {
     const destination = resolveAppBackDestination({
       syncReviewOpen: Boolean(syncPlan),
       importOpen,
+      calendarImportOpen,
       courseEditorOpen: Boolean(editingCourse),
       exportOpen,
       timetableOpen,
       settingsOpen,
       courseDetailsOpen: Boolean(selected),
+      secondaryPageOpen: activePage !== "课表",
     });
 
     if (destination === "sync-review") setSyncPlan(undefined);
@@ -104,6 +114,7 @@ export function App() {
       if (wizard) wizard.goBack();
       else setImportOpen(false);
     }
+    else if (destination === "calendar-import") setCalendarImportOpen(false);
     else if (destination === "course-editor") {
       setEditingCourse(undefined);
       setNewCourseSlot(undefined);
@@ -111,6 +122,7 @@ export function App() {
     else if (destination === "timetable") setTimetableOpen(false);
     else if (destination === "settings") setSettingsOpen(false);
     else if (destination === "course-details") setSelectedId(undefined);
+    else if (destination === "secondary-page") setActivePage("课表");
     else if (toast) setToast(undefined);
     else setToast("已在课表首页，返回手势不会退出应用");
   };
@@ -425,20 +437,23 @@ export function App() {
     <div className="app-shell">
 
       <Sidebar
-        active={settingsOpen ? "设置" : "课表"}
+        active={settingsOpen ? "设置" : activePage}
         schoolName={snapshot.schoolName}
         onNavigate={(item) => {
           if (item === "设置") setSettingsOpen(true);
-          else if (item !== "课表") setToast(`${item}模块已加入开发路线图`);
+          else if (item === "课表" || item === "今天") {
+            setSelectedId(undefined);
+            setActivePage(item);
+          } else setToast(`${item}模块已加入开发路线图`);
         }}
       />
 
       <main className="main-area">
         <header className="topbar">
           <div>
-            <div className="breadcrumb"><span>{isLocalSchedule ? "自定义课表" : termLabel}</span><i />{hasCourses ? `第 ${week} 周` : "等待导入"}</div>
+            <div className="breadcrumb"><span>{isLocalSchedule ? "自定义课表" : termLabel}</span><i />{activePage === "今天" ? "每日安排" : hasCourses ? `第 ${week} 周` : "等待导入"}</div>
             <div className="title-row">
-              <h1>我的课表</h1>
+              <h1>{activePage === "今天" ? "今天" : "我的课表"}</h1>
               <span className={`term-status ${hasCourses ? "" : "waiting"}`}>{isLocalSchedule ? "本地" : hasCourses ? "进行中" : "待导入"}</span>
             </div>
           </div>
@@ -451,49 +466,50 @@ export function App() {
           </div>
         </header>
 
-        <section className="calendar-toolbar">
-          <div className="week-control">
-            <button className="icon-button" onClick={() => changeWeek(week - 1)} aria-label="上一周"><Icon name="chevron-left" /></button>
-            <button className="today-button" onClick={() => changeWeek(1)}>本周</button>
-            <button className="icon-button" onClick={() => changeWeek(week + 1)} aria-label="下一周"><Icon name="chevron-right" /></button>
-            <button className="week-date" onClick={() => setTimetableOpen(true)} aria-label="调整第1周日期"><strong>第 {week} 周</strong><span>{formatWeekRange(view)}</span></button>
-          </div>
-          <div className="view-options">
-            <button className="preset-button" onClick={() => setTimetableOpen(true)}><Icon name="clock" /><span>{preset.name}</span><Icon name="chevron-right" /></button>
-            <div className="segmented"><button className="active">周</button><button onClick={() => setToast("日视图将在下一阶段接入")}>日</button></div>
-          </div>
-        </section>
+        {activePage === "课表" ? (
+          <div className="view-stage schedule-view-stage" key="schedule">
+            <section className="calendar-toolbar">
+              <div className="week-control">
+                <button className="icon-button" onClick={() => changeWeek(week - 1)} aria-label="上一周"><Icon name="chevron-left" /></button>
+                <button className="today-button" onClick={() => changeWeek(currentAcademicWeek)}>本周</button>
+                <button className="icon-button" onClick={() => changeWeek(week + 1)} aria-label="下一周"><Icon name="chevron-right" /></button>
+                <button className="week-date" onClick={() => setTimetableOpen(true)} aria-label="调整第1周日期"><strong>第 {week} 周</strong><span>{formatWeekRange(view)}</span></button>
+              </div>
+              <div className="view-options">
+                <button className="preset-button" onClick={() => setTimetableOpen(true)}><Icon name="clock" /><span>{preset.name}</span><Icon name="chevron-right" /></button>
+                <div className="segmented"><button className="active">周</button><button onClick={() => setActivePage("今天")}>日</button></div>
+              </div>
+            </section>
 
-        <div className="workspace">
-          <section className="calendar-panel">
-            <WeekCalendar
-              view={view}
-              previousView={previousView}
-              nextView={nextView}
-              preset={preset}
-              selectedId={selectedId}
-              canGoPrevious={week > 1}
-              canGoNext={week < 24}
-              onSelect={(meeting: CourseMeeting) => setSelectedId(meeting.id)}
-              onMove={handleMove}
-              onCreate={(day, startPeriod) => openNewCourse({ day, startPeriod })}
-              onChangeWeek={(delta) => changeWeek(week + delta)}
-            />
-            {!hasCourses && (
-              <EmptySchedule onImport={() => setImportOpen(true)} onCreate={() => openNewCourse()} />
-            )}
-            <div className="calendar-hint"><span className="hint-dot" />左右滑动切换周次 · 按住空白格约 0.8 秒添加课程 · 拖动课程可调整时间</div>
-          </section>
-          <CourseDetails
-            meeting={selected}
-            preset={preset}
-            reminderSettings={reminderSettings}
-            onClose={() => setSelectedId(undefined)}
-            onEdit={() => selected && setEditingCourse(selected)}
-            onReminderChange={(minutes) => selected && updateCourseReminder(selected.id, minutes)}
-            onOpenReminderSettings={() => setSettingsOpen(true)}
-          />
-        </div>
+            <div className="workspace">
+              <section className="calendar-panel">
+                <WeekCalendar
+                  view={view}
+                  previousView={previousView}
+                  nextView={nextView}
+                  preset={preset}
+                  selectedId={selectedId}
+                  canGoPrevious={week > 1}
+                  canGoNext={week < 24}
+                  onSelect={(meeting: CourseMeeting) => setSelectedId(meeting.id)}
+                  onMove={handleMove}
+                  onCreate={(day, startPeriod) => openNewCourse({ day, startPeriod })}
+                  onChangeWeek={(delta) => changeWeek(week + delta)}
+                />
+                {!hasCourses && <EmptySchedule onImport={() => setImportOpen(true)} onCreate={() => openNewCourse()} />}
+                <div className="calendar-hint"><span className="hint-dot" />左右滑动切换周次 · 按住空白格约 0.8 秒添加课程 · 拖动课程可调整时间</div>
+              </section>
+              <CourseDetails meeting={selected} preset={preset} reminderSettings={reminderSettings} onClose={() => setSelectedId(undefined)} onEdit={() => selected && setEditingCourse(selected)} onReminderChange={(minutes) => selected && updateCourseReminder(selected.id, minutes)} onOpenReminderSettings={() => setSettingsOpen(true)} />
+            </div>
+          </div>
+        ) : (
+          <div className="view-stage today-view-stage" key="today">
+            <div className="workspace today-workspace">
+              <TodayAgenda courses={snapshot.courses} preset={preset} calendar={calendar} onSelect={(meeting) => setSelectedId(meeting.id)} onCreate={(day, startPeriod) => openNewCourse({ day, startPeriod })} onOpenWeek={(nextWeek) => { changeWeek(nextWeek); setActivePage("课表"); }} />
+              <CourseDetails meeting={selected} preset={preset} reminderSettings={reminderSettings} onClose={() => setSelectedId(undefined)} onEdit={() => selected && setEditingCourse(selected)} onReminderChange={(minutes) => selected && updateCourseReminder(selected.id, minutes)} onOpenReminderSettings={() => setSettingsOpen(true)} />
+            </div>
+          </div>
+        )}
       </main>
 
       {settingsOpen && (
@@ -568,6 +584,10 @@ export function App() {
             setWeek(1);
             setToast(`已恢复 ${restored.courses.length} 条课程记录`);
           }}
+          onStartCalendarImport={() => {
+            setImportOpen(false);
+            setCalendarImportOpen(true);
+          }}
           onImported={(school, account, importedCourses, keepLocal, term) => {
             setSnapshot((current) => {
               const importedIds = new Set(importedCourses.map((course) => course.id));
@@ -576,6 +596,32 @@ export function App() {
             });
             setImportOpen(false);
             setToast(`已从${school.name}导入 ${importedCourses.length} 条课程`);
+          }}
+        />
+      )}
+
+      {calendarImportOpen && (
+        <CalendarImportDialog
+          preset={preset}
+          currentTermStartsOn={snapshot.termStartsOn ?? DEFAULT_TERM_START_KEY}
+          hasExistingCourses={hasCourses}
+          onClose={() => setCalendarImportOpen(false)}
+          onImport={(courses, termStartsOn, mode) => {
+            setSnapshot((current) => {
+              const replace = mode === "replace";
+              return {
+                ...current,
+                schoolName: replace || !current.schoolName ? "日历导入" : current.schoolName,
+                termStartsOn,
+                teachingStartsOn: replace || current.courses.length === 0 ? termStartsOn : current.teachingStartsOn,
+                courses: replace ? courses : mergeIcsCourses(current.courses, courses),
+              };
+            });
+            setCalendarImportOpen(false);
+            setActivePage("课表");
+            setWeek(1);
+            setSelectedId(undefined);
+            setToast(`已从日历${mode === "replace" ? "导入" : "合并"} ${courses.length} 门课程`);
           }}
         />
       )}

@@ -285,7 +285,7 @@ async fn fetch_schedule_payload(
     }
     let referer = checked_login_url(site)?.to_string();
     let user_agent = if user_agent.trim().is_empty() {
-        "Kezhi/0.3.3"
+        "Kezhi/0.3.4"
     } else {
         user_agent
     };
@@ -362,7 +362,7 @@ async fn fetch_school_schedule(
         .collect::<Vec<_>>()
         .join("; ");
 
-    fetch_schedule_payload(site, &request, cookie_header, "Kezhi/0.3.3 WebView2").await
+    fetch_schedule_payload(site, &request, cookie_header, "Kezhi/0.3.4 WebView2").await
 }
 
 #[cfg(target_os = "android")]

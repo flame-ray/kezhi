@@ -1,6 +1,6 @@
-export const LONG_PRESS_DELAY_MS = 780;
-export const LONG_PRESS_FEEDBACK_MS = 240;
-export const LONG_PRESS_MOVE_TOLERANCE_PX = 7;
+export const LONG_PRESS_DELAY_MS = 820;
+export const LONG_PRESS_FEEDBACK_MS = 220;
+export const LONG_PRESS_MOVE_TOLERANCE_PX = 12;
 
 interface Point {
   x: number;

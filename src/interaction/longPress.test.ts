@@ -7,8 +7,8 @@ describe("calendar long press", () => {
   });
 
   it("cancels as soon as the finger starts a scroll or week swipe", () => {
-    expect(shouldCancelLongPress({ x: 10, y: 10 }, { x: 14, y: 14 })).toBe(false);
-    expect(shouldCancelLongPress({ x: 10, y: 10 }, { x: 18, y: 10 })).toBe(true);
-    expect(shouldCancelLongPress({ x: 10, y: 10 }, { x: 10, y: 18 })).toBe(true);
+    expect(shouldCancelLongPress({ x: 10, y: 10 }, { x: 18, y: 18 })).toBe(false);
+    expect(shouldCancelLongPress({ x: 10, y: 10 }, { x: 23, y: 10 })).toBe(true);
+    expect(shouldCancelLongPress({ x: 10, y: 10 }, { x: 10, y: 23 })).toBe(true);
   });
 });

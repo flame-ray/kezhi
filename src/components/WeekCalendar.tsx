@@ -9,6 +9,7 @@ import {
   type TransitionEvent as ReactTransitionEvent,
 } from "react";
 import type { CourseMeeting, DayOfWeek, TimetablePreset, WeekView } from "../domain/schedule";
+import { alternatingWeekLabel } from "../domain/weekPattern";
 import {
   LONG_PRESS_DELAY_MS,
   LONG_PRESS_FEEDBACK_MS,
@@ -314,6 +315,7 @@ const CalendarGrid = memo(function CalendarGrid({ view, preset, selectedId, inte
 
       {meetings.map((meeting) => {
         const span = meeting.endPeriod - meeting.startPeriod + 1;
+        const weekPattern = alternatingWeekLabel(meeting.weeks);
         return (
           <button
             type="button"
@@ -336,6 +338,7 @@ const CalendarGrid = memo(function CalendarGrid({ view, preset, selectedId, inte
             <span className="course-meta"><Icon name="location" />{meeting.location}</span>
             {span > 1 && <span className="course-teacher">{meeting.teacher}</span>}
             {meeting.note && <span className="course-badge">{meeting.note}</span>}
+            {weekPattern && <span className="course-week-pattern">{weekPattern}</span>}
             {meeting.status === "changed" && <span className="change-dot" title="本地已修改" />}
           </button>
         );
@@ -357,6 +360,7 @@ function CalendarCell({ style, label, onCreate, onMove }: CalendarCellProps) {
   const originRef = useRef<{ x: number; y: number } | undefined>(undefined);
   const pointerRef = useRef<number | undefined>(undefined);
   const firedRef = useRef(false);
+  const suppressedContextMenuRef = useRef(false);
   const [pressing, setPressing] = useState(false);
 
   const cancelPress = () => {
@@ -366,6 +370,7 @@ function CalendarCell({ style, label, onCreate, onMove }: CalendarCellProps) {
     feedbackTimerRef.current = undefined;
     originRef.current = undefined;
     pointerRef.current = undefined;
+    suppressedContextMenuRef.current = false;
     setPressing(false);
   };
 
@@ -390,9 +395,10 @@ function CalendarCell({ style, label, onCreate, onMove }: CalendarCellProps) {
       style={style}
       aria-label={onCreate ? `${label}，按住约 0.8 秒添加课程` : label}
       onPointerDown={(event) => {
-        if (!onCreate || event.button !== 0) return;
+        if (!onCreate || (event.pointerType === "mouse" && event.button !== 0)) return;
         cancelPress();
         firedRef.current = false;
+        suppressedContextMenuRef.current = false;
         pointerRef.current = event.pointerId;
         originRef.current = { x: event.clientX, y: event.clientY };
         feedbackTimerRef.current = window.setTimeout(() => setPressing(true), LONG_PRESS_FEEDBACK_MS);
@@ -404,11 +410,11 @@ function CalendarCell({ style, label, onCreate, onMove }: CalendarCellProps) {
         if (shouldCancelLongPress(origin, { x: event.clientX, y: event.clientY })) cancelPress();
       }}
       onPointerUp={cancelPress}
-      onPointerCancel={cancelPress}
+      onPointerCancel={() => { if (!suppressedContextMenuRef.current) cancelPress(); }}
       onPointerLeave={(event) => { if (event.pointerType === "mouse") cancelPress(); }}
       onContextMenu={(event) => {
         event.preventDefault();
-        cancelPress();
+        suppressedContextMenuRef.current = Boolean(originRef.current);
       }}
       onClick={(event) => {
         if (event.detail === 0) triggerCreate();

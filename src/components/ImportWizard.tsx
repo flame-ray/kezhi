@@ -25,13 +25,14 @@ interface ImportWizardProps {
     term: { academicYear: number; semester: 1 | 2; studentGrade: StudentGrade; termStartsOn: string; teachingStartsOn: string },
   ) => void;
   onRestore: (snapshot: ScheduleSnapshot) => void;
+  onStartCalendarImport: () => void;
   onStartManual: () => void;
   onClose: () => void;
 }
 
 type LoginState = "idle" | "opening" | "checking" | "connected";
 
-export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(function ImportWizard({ activeAccountId, onImported, onRestore, onStartManual, onClose }, ref) {
+export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(function ImportWizard({ activeAccountId, onImported, onRestore, onStartCalendarImport, onStartManual, onClose }, ref) {
   const [step, setStep] = useState(1);
   const [schoolUrl, setSchoolUrl] = useState(schoolCatalog[0].loginUrl ?? "");
   const [urlError, setUrlError] = useState<string>();
@@ -304,6 +305,7 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
               <small>粘贴学校教务系统的 HTTPS 登录页网址</small>
             </label>
             {urlError && <div className="form-error url-error"><Icon name="warning" />{urlError}</div>}
+            <button type="button" className="calendar-import-shortcut" onClick={onStartCalendarImport}><Icon name="calendar" /><span><strong>从日历文件导入</strong><small>支持 Outlook、Google Calendar 和手机日历导出的 ICS</small></span><Icon name="chevron-right" /></button>
           </div>}
 
           {step === 2 && <div className="login-stage">
@@ -319,7 +321,7 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
             </div>
           </div>}
 
-          {step === 3 && manualImportFlow && <div className="android-import-stage"><span className="analyze-orbit"><Icon name="upload" /></span><h3>账号已保存，继续导入课表</h3><p>可以恢复课织 JSON 备份，或直接进入课表手动添加课程。</p><input ref={fileInput} className="hidden-file-input" type="file" accept="application/json,.json" onChange={(event) => void restoreBackup(event.target.files?.[0])} /><div className="android-import-actions"><button className="restore-backup-button" onClick={() => fileInput.current?.click()}><Icon name="upload" /><span><strong>从课织备份恢复</strong><small>选择此前导出的 JSON 文件</small></span><Icon name="chevron-right" /></button><button className="restore-backup-button manual-import-button" onClick={onStartManual}><Icon name="plus" /><span><strong>手动添加课程</strong><small>从第一门课程开始创建本地课表</small></span><Icon name="chevron-right" /></button></div>{restoreError && <div className="form-error restore-error"><Icon name="warning" />{restoreError}</div>}</div>}
+          {step === 3 && manualImportFlow && <div className="android-import-stage"><span className="analyze-orbit"><Icon name="upload" /></span><h3>账号已保存，继续导入课表</h3><p>可导入 ICS 日历、恢复课织 JSON 备份，或直接手动添加课程。</p><input ref={fileInput} className="hidden-file-input" type="file" accept="application/json,.json" onChange={(event) => void restoreBackup(event.target.files?.[0])} /><div className="android-import-actions"><button className="restore-backup-button calendar-file-button" onClick={onStartCalendarImport}><Icon name="calendar" /><span><strong>导入 ICS 日历</strong><small>自动识别日期、周次和节次</small></span><Icon name="chevron-right" /></button><button className="restore-backup-button" onClick={() => fileInput.current?.click()}><Icon name="upload" /><span><strong>从课织备份恢复</strong><small>选择此前导出的 JSON 文件</small></span><Icon name="chevron-right" /></button><button className="restore-backup-button manual-import-button" onClick={onStartManual}><Icon name="plus" /><span><strong>手动添加课程</strong><small>从第一门课程开始创建本地课表</small></span><Icon name="chevron-right" /></button></div>{restoreError && <div className="form-error restore-error"><Icon name="warning" />{restoreError}</div>}</div>}
           {step === 3 && !manualImportFlow && <div className="analyze-stage">
             <span className={`analyze-orbit ${analyzing ? "running" : ""}`}><Icon name="calendar" /></span>
             <h3>{analyzing ? "正在读取学校课表…" : "确认你的教学日历"}</h3>

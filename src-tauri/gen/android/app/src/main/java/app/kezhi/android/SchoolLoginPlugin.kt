@@ -28,12 +28,14 @@ import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.util.Locale
+import org.json.JSONTokener
 
 @InvokeArg
 class SchoolLoginOpenArgs {
   lateinit var url: String
   lateinit var allowedHost: String
   lateinit var accountId: String
+  lateinit var mode: String
 }
 
 @TauriPlugin
@@ -44,10 +46,12 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
   private var statusText: TextView? = null
   private var allowedHost = ""
   private var currentAccountId = ""
+  private var currentMode = "schedule"
   private var confirmed = false
   private var confirmedCookieHeader = ""
   private var confirmedCurrentUrl = ""
   private var confirmedUserAgent = ""
+  private var confirmedPageSnapshot = ""
 
   @Command
   fun open(invoke: Invoke) {
@@ -67,11 +71,13 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
     activity.runOnUiThread {
       val accountChanged = currentAccountId.isNotEmpty() && currentAccountId != args.accountId
       currentAccountId = args.accountId
+      currentMode = if (args.mode == "selection") "selection" else "schedule"
       allowedHost = args.allowedHost.lowercase(Locale.ROOT)
       confirmed = false
       confirmedCookieHeader = ""
       confirmedCurrentUrl = ""
       confirmedUserAgent = ""
+      confirmedPageSnapshot = ""
       disposeDialog()
 
       if (accountChanged) {
@@ -92,11 +98,12 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
       val cookieHeader = if (confirmedCookieHeader.isNotEmpty()) confirmedCookieHeader else readCookies(currentUrl)
       val response = JSObject().apply {
         put("windowOpen", dialog?.isShowing == true || confirmed)
-        put("authenticated", confirmed && cookieHeader.isNotEmpty())
+        put("authenticated", confirmed && (currentMode == "selection" || cookieHeader.isNotEmpty()))
         put("cookieHeader", cookieHeader)
         put("currentUrl", currentUrl)
         put("userAgent", confirmedUserAgent.ifEmpty { loginWebView?.settings?.userAgentString ?: "Kezhi Android" })
         put("accountId", currentAccountId)
+        put("pageSnapshot", confirmedPageSnapshot)
       }
       invoke.resolve(response)
     }
@@ -139,19 +146,19 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
         setPadding(dp(10), 0, dp(8), 0)
       }
       val title = TextView(activity).apply {
-        text = "学校官方登录"
+        text = if (currentMode == "selection") "学校选课学习" else "学校官方登录"
         textSize = 16f
         setTextColor(Color.rgb(30, 33, 41))
       }
       val nextStatusText = TextView(activity).apply {
-        text = "登录成功后可直接导入"
+        text = if (currentMode == "selection") "登录后进入选课页并查询一次" else "登录成功后可直接导入"
         textSize = 11f
         setTextColor(Color.rgb(113, 118, 132))
       }
       labels.addView(title)
       labels.addView(nextStatusText)
       val nextImportButton = Button(activity).apply {
-        text = "登录完成，导入课表"
+        text = if (currentMode == "selection") "已进入选课页，完成学习" else "登录完成，导入课表"
         isAllCaps = false
         textSize = 14f
         setTextColor(Color.WHITE)
@@ -175,7 +182,7 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
         javaScriptCanOpenWindowsAutomatically = false
         setSupportMultipleWindows(false)
         mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
-        userAgentString = "$userAgentString Kezhi/0.3.5"
+        userAgentString = "$userAgentString Kezhi/0.4.0"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) safeBrowsingEnabled = true
       }
       val cookies = CookieManager.getInstance()
@@ -211,13 +218,26 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
       nextImportButton.setOnClickListener {
         val currentUrl = webView.url ?: ""
         val cookieHeader = readCookies(currentUrl)
-        if (!isLoggedIn(currentUrl, cookieHeader)) return@setOnClickListener
-        confirmedCookieHeader = cookieHeader
-        confirmedCurrentUrl = currentUrl
-        confirmedUserAgent = webView.settings.userAgentString
-        confirmed = true
-        CookieManager.getInstance().flush()
-        nextDialog.dismiss()
+        if (currentMode == "selection") {
+          if (!isLearnablePage(currentUrl)) return@setOnClickListener
+          capturePageSnapshot(webView) { snapshot ->
+            confirmedCookieHeader = cookieHeader
+            confirmedCurrentUrl = currentUrl
+            confirmedUserAgent = webView.settings.userAgentString
+            confirmedPageSnapshot = snapshot
+            confirmed = true
+            CookieManager.getInstance().flush()
+            nextDialog.dismiss()
+          }
+        } else {
+          if (!isLoggedIn(currentUrl, cookieHeader)) return@setOnClickListener
+          confirmedCookieHeader = cookieHeader
+          confirmedCurrentUrl = currentUrl
+          confirmedUserAgent = webView.settings.userAgentString
+          confirmed = true
+          CookieManager.getInstance().flush()
+          nextDialog.dismiss()
+        }
       }
       nextDialog.setOnKeyListener { _, keyCode, event ->
         if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP && webView.canGoBack()) {
@@ -253,11 +273,49 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   private fun updateLoginState(url: String) {
-    val ready = isLoggedIn(url, readCookies(url))
+    val ready = if (currentMode == "selection") isLearnablePage(url) else isLoggedIn(url, readCookies(url))
     importButton?.visibility = if (ready) View.VISIBLE else View.GONE
     statusText?.apply {
-      text = if (ready) "已检测到登录，可开始导入" else "请在下方完成登录"
+      text = if (currentMode == "selection") {
+        if (ready) "请完成一次课程查询，再点击右侧按钮" else "请在下方登录并进入选课页"
+      } else if (ready) "已检测到登录，可开始导入" else "请在下方完成登录"
       setTextColor(if (ready) Color.rgb(42, 127, 105) else Color.rgb(113, 118, 132))
+    }
+  }
+
+  private fun isLearnablePage(url: String): Boolean {
+    val uri = Uri.parse(url)
+    return uri.scheme == "https" && uri.host?.lowercase(Locale.ROOT) == allowedHost
+  }
+
+  private fun capturePageSnapshot(webView: WebView, complete: (String) -> Unit) {
+    val script = """
+      (() => {
+        const clean = (value, max = 120) => String(value || '').replace(/\s+/g, ' ').trim().slice(0, max);
+        const sameOrigin = (value) => {
+          try {
+            const url = new URL(value || location.href, location.href);
+            return url.protocol === 'https:' && url.origin === location.origin ? url.href : '';
+          } catch (_) { return ''; }
+        };
+        const forms = Array.from(document.forms).slice(0, 40).map((form) => ({
+          action: sameOrigin(form.action || location.href),
+          method: clean(form.method || 'GET', 12).toUpperCase(),
+          fields: Array.from(form.elements).map((field) => clean(field.name || field.id, 80)).filter(Boolean).slice(0, 40),
+        })).filter((form) => form.action);
+        const links = Array.from(document.querySelectorAll('a[href]')).slice(0, 240).map((link) => ({
+          url: sameOrigin(link.href), text: clean(link.innerText || link.getAttribute('aria-label'), 100),
+        })).filter((link) => link.url);
+        const resources = performance.getEntriesByType('resource').slice(-300).map((entry) => ({
+          url: sameOrigin(entry.name), initiatorType: clean(entry.initiatorType, 30),
+        })).filter((entry) => entry.url && ['fetch', 'xmlhttprequest', 'script', 'iframe'].includes(entry.initiatorType));
+        const headings = Array.from(document.querySelectorAll('h1,h2,h3,[role="heading"],nav button')).slice(0, 80).map((node) => clean(node.innerText || node.textContent, 120)).filter(Boolean);
+        return JSON.stringify({ pageUrl: location.href, title: clean(document.title, 160), headings, forms, links, resources });
+      })()
+    """.trimIndent()
+    webView.evaluateJavascript(script) { result ->
+      val decoded = try { JSONTokener(result).nextValue() as? String ?: "" } catch (_: Exception) { "" }
+      complete(decoded.take(200_000))
     }
   }
 

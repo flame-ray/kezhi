@@ -16,6 +16,7 @@ pub(crate) struct OpenRequest<'a> {
     pub(crate) url: &'a str,
     pub(crate) allowed_host: &'a str,
     pub(crate) account_id: &'a str,
+    pub(crate) mode: &'a str,
 }
 
 #[derive(Deserialize)]
@@ -29,6 +30,10 @@ pub(crate) struct NativeLoginStatus {
     pub(crate) user_agent: String,
     #[serde(default)]
     pub(crate) account_id: String,
+    #[serde(default)]
+    pub(crate) current_url: String,
+    #[serde(default)]
+    pub(crate) page_snapshot: String,
 }
 
 impl<R: Runtime> AndroidSchoolLogin<R> {

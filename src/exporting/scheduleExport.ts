@@ -37,6 +37,8 @@ export function buildScheduleJson(context: ExportContext): string {
     presets: context.snapshot.presets,
     courses: context.snapshot.courses,
     reminderSettings: normalizeReminderSettings(context.snapshot.reminderSettings),
+    selectionAssistant: context.snapshot.selectionAssistant,
+    grades: context.snapshot.grades,
   }, null, 2);
 }
 

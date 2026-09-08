@@ -71,4 +71,8 @@ export interface ScheduleSnapshot {
   teachingStartsOn?: string;
   lastSyncAt?: string;
   reminderSettings?: ReminderSettings;
+  selectionAssistant?: SelectionAssistantState;
+  grades?: GradeRecord[];
 }
+import type { GradeRecord } from "../grades/gradeCenter";
+import type { SelectionAssistantState } from "../selection/selectionAssistant";

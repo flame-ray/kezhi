@@ -3,6 +3,7 @@ export interface AppBackState {
   importOpen: boolean;
   calendarImportOpen: boolean;
   courseEditorOpen: boolean;
+  gradeEditorOpen: boolean;
   exportOpen: boolean;
   timetableOpen: boolean;
   settingsOpen: boolean;
@@ -15,6 +16,7 @@ export type AppBackDestination =
   | "import"
   | "calendar-import"
   | "course-editor"
+  | "grade-editor"
   | "export"
   | "timetable"
   | "settings"
@@ -27,6 +29,7 @@ const backPriority: ReadonlyArray<readonly [keyof AppBackState, AppBackDestinati
   ["importOpen", "import"],
   ["calendarImportOpen", "calendar-import"],
   ["courseEditorOpen", "course-editor"],
+  ["gradeEditorOpen", "grade-editor"],
   ["exportOpen", "export"],
   ["timetableOpen", "timetable"],
   ["settingsOpen", "settings"],

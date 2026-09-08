@@ -3,7 +3,7 @@ import { Icon } from "../ui/Icon";
 const primaryItems = [
   ["课表", "calendar"],
   ["今天", "today"],
-  ["考试", "exam"],
+  ["选课", "search"],
   ["成绩", "chart"],
 ] as const;
 

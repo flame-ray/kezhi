@@ -19,6 +19,10 @@ pub(crate) struct ScheduleSnapshot {
     pub last_sync_at: Option<String>,
     #[serde(default)]
     pub reminder_settings: ReminderSettings,
+    #[serde(default)]
+    pub selection_assistant: serde_json::Value,
+    #[serde(default)]
+    pub grades: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -115,6 +119,10 @@ impl ScheduleStore {
 
     pub(crate) fn save(&self, snapshot: &ScheduleSnapshot) -> Result<(), String> {
         validate_snapshot(snapshot)?;
+        let selection_assistant_json = serde_json::to_string(&snapshot.selection_assistant)
+            .map_err(|error| error.to_string())?;
+        let grades_json =
+            serde_json::to_string(&snapshot.grades).map_err(|error| error.to_string())?;
         let mut connection = self
             .connection
             .lock()
@@ -125,8 +133,9 @@ impl ScheduleStore {
             .execute(
                 "INSERT INTO schedule_state (
                     singleton, active_preset_id, school_name, school_id, account_id,
-                    academic_year, semester, student_grade, term_starts_on, teaching_starts_on, last_sync_at, reminders_enabled, default_reminder_minutes
-                 ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                    academic_year, semester, student_grade, term_starts_on, teaching_starts_on, last_sync_at, reminders_enabled, default_reminder_minutes,
+                    selection_assistant_json, grades_json
+                 ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
                  ON CONFLICT(singleton) DO UPDATE SET
                     active_preset_id = excluded.active_preset_id,
                     school_name = excluded.school_name,
@@ -139,7 +148,9 @@ impl ScheduleStore {
                     teaching_starts_on = excluded.teaching_starts_on,
                     last_sync_at = excluded.last_sync_at,
                     reminders_enabled = excluded.reminders_enabled,
-                    default_reminder_minutes = excluded.default_reminder_minutes",
+                    default_reminder_minutes = excluded.default_reminder_minutes,
+                    selection_assistant_json = excluded.selection_assistant_json,
+                    grades_json = excluded.grades_json",
                 params![
                     snapshot.active_preset_id,
                     snapshot.school_name,
@@ -153,6 +164,8 @@ impl ScheduleStore {
                     snapshot.last_sync_at,
                     snapshot.reminder_settings.enabled,
                     snapshot.reminder_settings.default_minutes,
+                    selection_assistant_json,
+                    grades_json,
                 ],
             )
             .map_err(database_error)?;
@@ -330,9 +343,21 @@ fn migrate_schema(connection: &Connection) -> Result<(), String> {
         "INTEGER NOT NULL DEFAULT 15",
     )?;
     add_column_if_missing(connection, "course_meetings", "reminder_minutes", "INTEGER")?;
+    add_column_if_missing(
+        connection,
+        "schedule_state",
+        "selection_assistant_json",
+        "TEXT NOT NULL DEFAULT 'null'",
+    )?;
+    add_column_if_missing(
+        connection,
+        "schedule_state",
+        "grades_json",
+        "TEXT NOT NULL DEFAULT '[]'",
+    )?;
     connection
         .execute(
-            "UPDATE schema_meta SET value = '5' WHERE key = 'schema_version'",
+            "UPDATE schema_meta SET value = '6' WHERE key = 'schema_version'",
             [],
         )
         .map_err(database_error)?;
@@ -359,7 +384,7 @@ fn add_column_if_missing(
 fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, String> {
     let state = connection
         .query_row(
-            "SELECT active_preset_id, school_name, school_id, account_id, academic_year, semester, student_grade, term_starts_on, teaching_starts_on, last_sync_at, reminders_enabled, default_reminder_minutes
+            "SELECT active_preset_id, school_name, school_id, account_id, academic_year, semester, student_grade, term_starts_on, teaching_starts_on, last_sync_at, reminders_enabled, default_reminder_minutes, selection_assistant_json, grades_json
              FROM schedule_state WHERE singleton = 1",
             [],
             |row| {
@@ -376,6 +401,8 @@ fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, St
                     row.get::<_, Option<String>>(9)?,
                     row.get::<_, bool>(10)?,
                     row.get::<_, u16>(11)?,
+                    row.get::<_, String>(12)?,
+                    row.get::<_, String>(13)?,
                 ))
             },
         )
@@ -394,6 +421,8 @@ fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, St
         last_sync_at,
         reminders_enabled,
         default_reminder_minutes,
+        selection_assistant_json,
+        grades_json,
     )) = state
     else {
         return Ok(None);
@@ -515,6 +544,10 @@ fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, St
             enabled: reminders_enabled,
             default_minutes: default_reminder_minutes,
         },
+        selection_assistant: serde_json::from_str(&selection_assistant_json)
+            .map_err(|_| "本地数据库中的选课助手数据已损坏".to_string())?,
+        grades: serde_json::from_str(&grades_json)
+            .map_err(|_| "本地数据库中的成绩数据已损坏".to_string())?,
     };
     validate_snapshot(&snapshot)?;
     Ok(Some(snapshot))
@@ -526,6 +559,15 @@ fn validate_snapshot(snapshot: &ScheduleSnapshot) -> Result<(), String> {
     }
     if snapshot.presets.is_empty() || snapshot.presets.len() > 50 {
         return Err("作息方案数量无效".into());
+    }
+    if snapshot.grades.len() > 2_000 {
+        return Err("成绩记录数量超过本地存储上限".into());
+    }
+    let extras_size = serde_json::to_vec(&(&snapshot.selection_assistant, &snapshot.grades))
+        .map_err(|error| error.to_string())?
+        .len();
+    if extras_size > 2 * 1024 * 1024 {
+        return Err("选课助手或成绩数据超过本地存储上限".into());
     }
     if !snapshot
         .presets
@@ -713,7 +755,7 @@ CREATE TABLE IF NOT EXISTS schema_meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('schema_version', '5');
+INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('schema_version', '6');
 
 CREATE TABLE IF NOT EXISTS schedule_state (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -728,7 +770,9 @@ CREATE TABLE IF NOT EXISTS schedule_state (
     teaching_starts_on TEXT,
     last_sync_at TEXT,
     reminders_enabled INTEGER NOT NULL DEFAULT 0,
-    default_reminder_minutes INTEGER NOT NULL DEFAULT 15
+    default_reminder_minutes INTEGER NOT NULL DEFAULT 15,
+    selection_assistant_json TEXT NOT NULL DEFAULT 'null',
+    grades_json TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS course_meetings (
@@ -826,6 +870,10 @@ mod tests {
                 enabled: true,
                 default_minutes: 15,
             },
+            selection_assistant: serde_json::json!({"portalUrl": "https://jw.example.edu.cn/"}),
+            grades: vec![
+                serde_json::json!({"id": "grade-1", "courseName": "高等数学", "score": "92"}),
+            ],
         }
     }
 
@@ -935,14 +983,14 @@ mod tests {
             .unwrap();
         assert_eq!(count, 1);
 
-        let calendar_and_reminder_columns: u8 = connection
+        let calendar_reminder_and_feature_columns: u8 = connection
             .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('schedule_state') WHERE name IN ('student_grade', 'teaching_starts_on', 'reminders_enabled', 'default_reminder_minutes')",
+                "SELECT COUNT(*) FROM pragma_table_info('schedule_state') WHERE name IN ('student_grade', 'teaching_starts_on', 'reminders_enabled', 'default_reminder_minutes', 'selection_assistant_json', 'grades_json')",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(calendar_and_reminder_columns, 4);
+        assert_eq!(calendar_reminder_and_feature_columns, 6);
     }
 
     #[test]

@@ -2,10 +2,13 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CourseDetails } from "./components/CourseDetails";
 import { CourseEditorDialog, type CourseDraftSlot } from "./components/CourseEditorDialog";
 import { CalendarImportDialog } from "./components/CalendarImportDialog";
+import { GradeEditorDialog } from "./components/GradeEditorDialog";
+import { GradesPage } from "./components/GradesPage";
 import { EmptySchedule } from "./components/EmptySchedule";
 import { ExportDialog } from "./components/ExportDialog";
 import { ImportWizard, type ImportWizardHandle } from "./components/ImportWizard";
 import { SettingsDialog } from "./components/SettingsDialog";
+import { SelectionAssistantPage } from "./components/SelectionAssistantPage";
 import { Sidebar } from "./components/Sidebar";
 import { SyncReviewDialog } from "./components/SyncReviewDialog";
 import { TimetableDialog } from "./components/TimetableDialog";
@@ -15,26 +18,29 @@ import { defaultPresets } from "./data/demo";
 import { alignImportedWeeks, normalizeAcademicCalendar, resolveAcademicCalendar, suggestAcademicCalendar } from "./domain/academicCalendar";
 import { academicPositionForDate } from "./domain/dayAgenda";
 import type { CourseMeeting, DayOfWeek, ScheduleSnapshot, TimetablePreset } from "./domain/schedule";
+import { mergeGrades, normalizeGrades, type GradeRecord } from "./grades/gradeCenter";
 import { activePreset, buildWeekView, formatWeekRange, moveMeeting } from "./domain/scheduleEngine";
 import { DEFAULT_TEACHING_START_KEY, DEFAULT_TERM_START_KEY, normalizeTeachingStartKey, normalizeTermStartKey } from "./domain/termDate";
 import { parseZhengfangSchedule } from "./importing/zhengfangAdapter";
 import { mergeIcsCourses } from "./importing/icsImport";
+import { resolveSchoolLoginUrl } from "./importing/schoolCatalog";
 import { resolveAppBackDestination } from "./navigation/backNavigation";
 import { installAndroidBackHandler } from "./platform/androidBack";
-import { fetchSchoolSchedule, getSchoolLoginStatus, isTauriRuntime, loadScheduleSnapshot, prepareSchoolSession, saveScheduleSnapshot } from "./platform/tauriBridge";
+import { fetchPortalResource, fetchSchoolSchedule, getSchoolLoginStatus, isTauriRuntime, loadScheduleSnapshot, openSchoolLogin, prepareSchoolSession, readPortalPageSnapshot, saveScheduleSnapshot, type SchoolLoginRequest } from "./platform/tauriBridge";
 import { clearScheduledCourseNotifications, ensureNotificationPermission, replaceScheduledCourseNotifications, sendReminderTestNotification } from "./platform/notifications";
 import { getRuntimeCapabilities } from "./platform/runtime";
 import { buildReminderSchedule, normalizeReminderSettings } from "./reminders/reminderSchedule";
+import { applySeatPayload, nextMonitorDelaySeconds, normalizeSelectionAssistant, recordMonitorFailure } from "./selection/selectionAssistant";
 import { applyScheduleSyncPlan, createScheduleSyncPlan, type ScheduleSyncPlan, type SyncChoice } from "./sync/scheduleSync";
 import { Icon } from "./ui/Icon";
 
 const STORAGE_KEY = "kezhi.schedule.prototype.v2";
 const THEME_KEY = "kezhi.appearance.theme";
 function normalizeSnapshot(snapshot: ScheduleSnapshot): ScheduleSnapshot {
-  return { ...snapshot, ...normalizeAcademicCalendar(snapshot), reminderSettings: normalizeReminderSettings(snapshot.reminderSettings) };
+  return { ...snapshot, ...normalizeAcademicCalendar(snapshot), reminderSettings: normalizeReminderSettings(snapshot.reminderSettings), selectionAssistant: normalizeSelectionAssistant(snapshot.selectionAssistant), grades: normalizeGrades(snapshot.grades) };
 }
 type AppTheme = "light" | "dark";
-type PrimaryPage = "课表" | "今天";
+type PrimaryPage = "课表" | "今天" | "选课" | "成绩";
 
 function initialSnapshot(): ScheduleSnapshot {
   try {
@@ -63,6 +69,7 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string>();
   const [timetableOpen, setTimetableOpen] = useState(false);
   const [editingCourse, setEditingCourse] = useState<CourseMeeting | "new">();
+  const [editingGrade, setEditingGrade] = useState<GradeRecord | "new">();
   const [importOpen, setImportOpen] = useState(false);
   const [calendarImportOpen, setCalendarImportOpen] = useState(false);
   const [newCourseSlot, setNewCourseSlot] = useState<CourseDraftSlot>();
@@ -76,6 +83,7 @@ export function App() {
   const syncInFlight = useRef(false);
   const reminderSyncGeneration = useRef(0);
   const reminderSyncQueue = useRef<Promise<void>>(Promise.resolve());
+  const selectionMonitorInFlight = useRef(false);
   const [scheduledReminderCount, setScheduledReminderCount] = useState(0);
   const importWizardRef = useRef<ImportWizardHandle>(null);
   const appBackHandlerRef = useRef<() => void>(() => undefined);
@@ -87,6 +95,8 @@ export function App() {
   const previousView = useMemo(() => buildWeekView(snapshot.courses, calendar, Math.max(1, week - 1)), [snapshot.courses, calendar, week]);
   const nextView = useMemo(() => buildWeekView(snapshot.courses, calendar, Math.min(24, week + 1)), [snapshot.courses, calendar, week]);
   const selected = snapshot.courses.find((course) => course.id === selectedId);
+  const selectionAssistant = normalizeSelectionAssistant(snapshot.selectionAssistant);
+  const grades = normalizeGrades(snapshot.grades);
   const currentAcademicWeek = Math.min(24, Math.max(1, academicPositionForDate(new Date(), calendar).week));
   const reminderSettings = normalizeReminderSettings(snapshot.reminderSettings);
   const hasCourses = snapshot.courses.length > 0;
@@ -101,6 +111,7 @@ export function App() {
       importOpen,
       calendarImportOpen,
       courseEditorOpen: Boolean(editingCourse),
+      gradeEditorOpen: Boolean(editingGrade),
       exportOpen,
       timetableOpen,
       settingsOpen,
@@ -118,7 +129,8 @@ export function App() {
     else if (destination === "course-editor") {
       setEditingCourse(undefined);
       setNewCourseSlot(undefined);
-    } else if (destination === "export") setExportOpen(false);
+    } else if (destination === "grade-editor") setEditingGrade(undefined);
+    else if (destination === "export") setExportOpen(false);
     else if (destination === "timetable") setTimetableOpen(false);
     else if (destination === "settings") setSettingsOpen(false);
     else if (destination === "course-details") setSelectedId(undefined);
@@ -433,6 +445,70 @@ export function App() {
     }
   };
 
+  const portalRequest = (url: string): SchoolLoginRequest => {
+    const school = resolveSchoolLoginUrl(url);
+    if (!school?.loginUrl) throw new Error("请输入有效的 HTTPS 教务系统网址");
+    return {
+      schoolId: school.id,
+      accountId: snapshot.accountId ?? "selection-default",
+      loginUrl: school.loginUrl,
+      purpose: "selection",
+    };
+  };
+
+  const openSelectionPortal = async (url: string) => {
+    await openSchoolLogin(portalRequest(url));
+  };
+
+  const readSelectionPortal = async (url: string) => readPortalPageSnapshot(portalRequest(url));
+
+  const fetchSelectionResource = async (portalUrl: string, endpointUrl: string) => {
+    const payload = await fetchPortalResource({ ...portalRequest(portalUrl), endpointUrl });
+    return payload.body;
+  };
+
+  useEffect(() => {
+    const assistant = selectionAssistant;
+    const endpoint = assistant.adapter?.monitorEndpoint;
+    if (!capabilities.native || !assistant.monitorEnabled || !endpoint || !assistant.portalUrl || assistant.targets.length === 0) return;
+    const wait = nextMonitorDelaySeconds(assistant.intervalSeconds, assistant.consecutiveFailures) * 1000;
+    const timer = window.setTimeout(() => {
+      if (selectionMonitorInFlight.current) return;
+      selectionMonitorInFlight.current = true;
+      void fetchSelectionResource(assistant.portalUrl, endpoint)
+        .then((body) => {
+          const result = applySeatPayload(assistant, body);
+          setSnapshot((current) => ({ ...current, selectionAssistant: applySeatPayload(normalizeSelectionAssistant(current.selectionAssistant), body).state }));
+          if (result.availableCount) setToast(`选课助手发现 ${result.availableCount} 门课程有余量，请前往官方页面确认`);
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          setSnapshot((current) => ({ ...current, selectionAssistant: recordMonitorFailure(normalizeSelectionAssistant(current.selectionAssistant), message) }));
+        })
+        .finally(() => { selectionMonitorInFlight.current = false; });
+    }, wait);
+    return () => window.clearTimeout(timer);
+    // Polling is rescheduled whenever the persisted monitor state changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capabilities.native, selectionAssistant.adapter?.monitorEndpoint, selectionAssistant.consecutiveFailures, selectionAssistant.intervalSeconds, selectionAssistant.monitorEnabled, selectionAssistant.portalUrl, selectionAssistant.targets.length]);
+
+  const saveGrade = (grade: GradeRecord) => {
+    setSnapshot((current) => ({ ...current, grades: mergeGrades(normalizeGrades(current.grades), [grade]) }));
+    setEditingGrade(undefined);
+    setToast("成绩已保存到本机");
+  };
+
+  const deleteGrade = (id: string) => {
+    setSnapshot((current) => ({ ...current, grades: normalizeGrades(current.grades).filter((record) => record.id !== id) }));
+    setEditingGrade(undefined);
+    setToast("成绩记录已删除");
+  };
+
+  const pageTitle = activePage === "课表" ? "我的课表" : activePage === "今天" ? "今天" : activePage === "选课" ? "选课助手" : "成绩";
+  const pageContext = activePage === "课表" ? (hasCourses ? `第 ${week} 周` : "等待导入") : activePage === "今天" ? "每日安排" : activePage === "选课" ? "学校页面学习" : `${grades.length} 条记录`;
+  const pageStatus = activePage === "选课" ? (selectionAssistant.monitorEnabled ? "监控中" : selectionAssistant.adapter ? "已学习" : "待配置") : activePage === "成绩" ? (grades.length ? "仅本机" : "待录入") : isLocalSchedule ? "本地" : hasCourses ? "进行中" : "待导入";
+  const schedulePage = activePage === "课表" || activePage === "今天";
+
   return (
     <div className="app-shell">
 
@@ -441,9 +517,10 @@ export function App() {
         schoolName={snapshot.schoolName}
         onNavigate={(item) => {
           if (item === "设置") setSettingsOpen(true);
-          else if (item === "课表" || item === "今天") {
+          else if (item === "课表" || item === "今天" || item === "选课" || item === "成绩") {
             setSelectedId(undefined);
-            setActivePage(item);
+            setEditingGrade(undefined);
+            setActivePage(item as PrimaryPage);
           } else setToast(`${item}模块已加入开发路线图`);
         }}
       />
@@ -451,18 +528,18 @@ export function App() {
       <main className="main-area">
         <header className="topbar">
           <div>
-            <div className="breadcrumb"><span>{isLocalSchedule ? "自定义课表" : termLabel}</span><i />{activePage === "今天" ? "每日安排" : hasCourses ? `第 ${week} 周` : "等待导入"}</div>
+            <div className="breadcrumb"><span>{isLocalSchedule ? "自定义课表" : termLabel}</span><i />{pageContext}</div>
             <div className="title-row">
-              <h1>{activePage === "今天" ? "今天" : "我的课表"}</h1>
-              <span className={`term-status ${hasCourses ? "" : "waiting"}`}>{isLocalSchedule ? "本地" : hasCourses ? "进行中" : "待导入"}</span>
+              <h1>{pageTitle}</h1>
+              <span className={`term-status ${(activePage === "成绩" ? grades.length : activePage === "选课" ? selectionAssistant.adapter : hasCourses) ? "" : "waiting"}`}>{pageStatus}</span>
             </div>
           </div>
           <div className="top-actions">
-            <button className="soft-button export-action" onClick={() => hasCourses ? setExportOpen(true) : setToast("请先导入或手动添加课程")}><Icon name="download" />导出</button>
-            <button className="soft-button import-action" onClick={() => setImportOpen(true)}><Icon name="upload" /><span>导入</span></button>
-            <button className={`soft-button sync-action ${syncing ? "syncing" : ""}`} disabled={syncing} onClick={() => void handleSync()}><Icon name="refresh" />{syncing ? "同步中" : "同步"}</button>
+            {schedulePage && <button className="soft-button export-action" onClick={() => hasCourses ? setExportOpen(true) : setToast("请先导入或手动添加课程")}><Icon name="download" />导出</button>}
+            {schedulePage && <button className="soft-button import-action" onClick={() => setImportOpen(true)}><Icon name="upload" /><span>导入</span></button>}
+            {schedulePage && <button className={`soft-button sync-action ${syncing ? "syncing" : ""}`} disabled={syncing} onClick={() => void handleSync()}><Icon name="refresh" />{syncing ? "同步中" : "同步"}</button>}
             <button className="soft-button theme-toggle" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={theme === "dark" ? "切换亮色主题" : "切换暗色主题"} title={theme === "dark" ? "切换亮色主题" : "切换暗色主题"}><Icon name={theme === "dark" ? "sun" : "moon"} /><span>{theme === "dark" ? "亮色" : "暗色"}</span></button>
-            <button className="primary-button create-action" onClick={() => openNewCourse()}><Icon name="plus" /><span>新建课程</span></button>
+            {schedulePage && <button className="primary-button create-action" onClick={() => openNewCourse()}><Icon name="plus" /><span>新建课程</span></button>}
           </div>
         </header>
 
@@ -502,13 +579,32 @@ export function App() {
               <CourseDetails meeting={selected} preset={preset} reminderSettings={reminderSettings} onClose={() => setSelectedId(undefined)} onEdit={() => selected && setEditingCourse(selected)} onReminderChange={(minutes) => selected && updateCourseReminder(selected.id, minutes)} onOpenReminderSettings={() => setSettingsOpen(true)} />
             </div>
           </div>
-        ) : (
+        ) : activePage === "今天" ? (
           <div className="view-stage today-view-stage" key="today">
             <div className="workspace today-workspace">
               <TodayAgenda courses={snapshot.courses} preset={preset} calendar={calendar} onSelect={(meeting) => setSelectedId(meeting.id)} onCreate={(day, startPeriod) => openNewCourse({ day, startPeriod })} onOpenWeek={(nextWeek) => { changeWeek(nextWeek); setActivePage("课表"); }} />
               <CourseDetails meeting={selected} preset={preset} reminderSettings={reminderSettings} onClose={() => setSelectedId(undefined)} onEdit={() => selected && setEditingCourse(selected)} onReminderChange={(minutes) => selected && updateCourseReminder(selected.id, minutes)} onOpenReminderSettings={() => setSettingsOpen(true)} />
             </div>
           </div>
+        ) : activePage === "选课" ? (
+          <SelectionAssistantPage
+            state={selectionAssistant}
+            nativeAvailable={capabilities.native}
+            onChange={(next) => setSnapshot((current) => ({ ...current, selectionAssistant: next }))}
+            onOpenPortal={openSelectionPortal}
+            onReadPortal={readSelectionPortal}
+            onFetchResource={fetchSelectionResource}
+            onToast={setToast}
+          />
+        ) : (
+          <GradesPage
+            records={grades}
+            defaultYear={snapshot.academicYear ?? new Date().getFullYear()}
+            defaultSemester={snapshot.semester ?? 1}
+            onChange={(next) => setSnapshot((current) => ({ ...current, grades: next }))}
+            onEdit={(grade) => setEditingGrade(grade ?? "new")}
+            onToast={setToast}
+          />
         )}
       </main>
 
@@ -566,6 +662,17 @@ export function App() {
             setEditingCourse(undefined);
             setNewCourseSlot(undefined);
           }}
+        />
+      )}
+
+      {editingGrade && (
+        <GradeEditorDialog
+          grade={editingGrade === "new" ? undefined : editingGrade}
+          defaultYear={snapshot.academicYear ?? new Date().getFullYear()}
+          defaultSemester={snapshot.semester ?? 1}
+          onSave={saveGrade}
+          onDelete={editingGrade === "new" ? undefined : deleteGrade}
+          onClose={() => setEditingGrade(undefined)}
         />
       )}
 

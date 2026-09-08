@@ -1,6 +1,8 @@
 import type { CourseColor, CourseMeeting, CourseStatus, DayOfWeek, ScheduleSnapshot, StudentGrade, TimetablePreset } from "../domain/schedule";
 import { normalizeTeachingStartKey, normalizeTermStartKey } from "../domain/termDate";
 import { normalizeReminderSettings } from "../reminders/reminderSchedule";
+import { normalizeGrades } from "../grades/gradeCenter";
+import { normalizeSelectionAssistant } from "../selection/selectionAssistant";
 
 const colors: CourseColor[] = ["blue", "teal", "coral", "violet", "rose", "amber", "indigo"];
 const statuses: CourseStatus[] = ["normal", "changed", "cancelled"];
@@ -48,6 +50,8 @@ export function parseScheduleBackup(text: string): ScheduleSnapshot {
     teachingStartsOn,
     lastSyncAt: safeIsoDate(raw.lastSyncAt),
     reminderSettings: normalizeReminderSettings(raw.reminderSettings),
+    selectionAssistant: normalizeSelectionAssistant(raw.selectionAssistant),
+    grades: normalizeGrades(raw.grades),
   };
 }
 

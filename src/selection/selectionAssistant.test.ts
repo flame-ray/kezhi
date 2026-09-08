@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applySeatPayload, learnSelectionInterface, nextMonitorDelaySeconds, normalizeSelectionAssistant, observeSeatAvailability, recordMonitorFailure } from "./selectionAssistant";
+import { applySeatPayload, armSelectionSchedule, learnSelectionInterface, markSelectionScheduleTriggered, nextMonitorDelaySeconds, normalizeSelectionAssistant, observeSeatAvailability, recordMonitorFailure, selectionSchedulePhase } from "./selectionAssistant";
 
 describe("selection assistant", () => {
   it("learns same-origin selection candidates from an observed page", () => {
@@ -46,4 +46,21 @@ describe("selection assistant", () => {
     expect(success.state.targets[0]).toMatchObject({ status: "available", availableSeats: 2 });
     expect(recordMonitorFailure(success.state, "timeout").consecutiveFailures).toBe(1);
   });
+
+  it("arms a local schedule and exposes deterministic countdown phases", () => {
+    const now = new Date("2026-09-08T01:00:00.000Z");
+    const state = armSelectionSchedule(defaultState(), "2026-09-08T01:10:00.000Z", 5, now);
+    expect(selectionSchedulePhase(state.schedule, now)).toBe("waiting");
+    expect(selectionSchedulePhase(state.schedule, new Date("2026-09-08T01:06:00.000Z"))).toBe("preflight");
+    expect(selectionSchedulePhase(state.schedule, new Date("2026-09-08T01:10:00.000Z"))).toBe("due");
+    expect(selectionSchedulePhase(markSelectionScheduleTriggered(state, now).schedule, now)).toBe("triggered");
+  });
+
+  it("rejects schedules that are already due", () => {
+    expect(() => armSelectionSchedule(defaultState(), "2026-09-08T00:59:59.000Z", 5, new Date("2026-09-08T01:00:00.000Z"))).toThrow("晚于现在");
+  });
 });
+
+function defaultState() {
+  return normalizeSelectionAssistant(undefined);
+}

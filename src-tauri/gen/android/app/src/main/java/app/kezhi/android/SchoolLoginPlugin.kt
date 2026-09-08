@@ -182,7 +182,7 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
         javaScriptCanOpenWindowsAutomatically = false
         setSupportMultipleWindows(false)
         mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
-        userAgentString = "$userAgentString Kezhi/0.4.0"
+        userAgentString = "$userAgentString Kezhi/0.4.1"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) safeBrowsingEnabled = true
       }
       val cookies = CookieManager.getInstance()

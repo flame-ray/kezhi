@@ -61,6 +61,15 @@ export interface SelectionTarget {
   lastMessage?: string;
 }
 
+export type SelectionScheduleStatus = "scheduled" | "triggered" | "expired";
+
+export interface SelectionRunSchedule {
+  startsAt: string;
+  preflightMinutes: 1 | 3 | 5 | 10;
+  status: SelectionScheduleStatus;
+  lastTriggeredAt?: string;
+}
+
 export interface SelectionAssistantState {
   portalUrl: string;
   adapter?: LearnedPortalAdapter;
@@ -69,6 +78,7 @@ export interface SelectionAssistantState {
   intervalSeconds: number;
   requireConfirmation: true;
   consecutiveFailures: number;
+  schedule?: SelectionRunSchedule;
 }
 
 export interface SeatObservation {
@@ -82,6 +92,8 @@ export interface SelectionMonitorResult {
   state: SelectionAssistantState;
   availableCount: number;
 }
+
+export type SelectionSchedulePhase = "inactive" | "waiting" | "preflight" | "due" | "triggered" | "expired";
 
 const selectionKeywords = ["选课", "课程选择", "选课中心", "elective", "courseselect", "course-select", "course_selection", "xsxk", "xk/", "xk."];
 const seatKeywords = ["余量", "剩余", "容量", "可选", "available", "remaining", "vacancy", "capacity", "quota"];
@@ -112,7 +124,55 @@ export function normalizeSelectionAssistant(value: unknown): SelectionAssistantS
     intervalSeconds,
     requireConfirmation: true,
     consecutiveFailures: integerInRange(value.consecutiveFailures, 0, 20) ?? 0,
+    schedule: parseSchedule(value.schedule),
   };
+}
+
+export function armSelectionSchedule(
+  state: SelectionAssistantState,
+  startsAt: string,
+  preflightMinutes: number,
+  now = new Date(),
+): SelectionAssistantState {
+  const parsed = Date.parse(startsAt);
+  const allowedPreflight = [1, 3, 5, 10].includes(preflightMinutes) ? preflightMinutes as 1 | 3 | 5 | 10 : 5;
+  if (!Number.isFinite(parsed)) throw new Error("请选择有效的选课开始时间");
+  if (parsed < now.getTime() + 5_000) throw new Error("预约时间至少需要晚于现在 5 秒");
+  if (parsed > now.getTime() + 366 * 24 * 60 * 60 * 1_000) throw new Error("预约时间不能超过一年");
+  return {
+    ...state,
+    schedule: {
+      startsAt: new Date(parsed).toISOString(),
+      preflightMinutes: allowedPreflight,
+      status: "scheduled",
+    },
+    requireConfirmation: true,
+  };
+}
+
+export function selectionSchedulePhase(schedule: SelectionRunSchedule | undefined, now = new Date()): SelectionSchedulePhase {
+  if (!schedule) return "inactive";
+  if (schedule.status === "triggered") return "triggered";
+  if (schedule.status === "expired") return "expired";
+  const remaining = Date.parse(schedule.startsAt) - now.getTime();
+  if (remaining < -15 * 60_000) return "expired";
+  if (remaining <= 0) return "due";
+  if (remaining <= schedule.preflightMinutes * 60_000) return "preflight";
+  return "waiting";
+}
+
+export function markSelectionScheduleTriggered(state: SelectionAssistantState, now = new Date()): SelectionAssistantState {
+  if (!state.schedule) return state;
+  return {
+    ...state,
+    schedule: { ...state.schedule, status: "triggered", lastTriggeredAt: now.toISOString() },
+    requireConfirmation: true,
+  };
+}
+
+export function expireSelectionSchedule(state: SelectionAssistantState): SelectionAssistantState {
+  if (!state.schedule) return state;
+  return { ...state, schedule: { ...state.schedule, status: "expired" }, requireConfirmation: true };
 }
 
 export function learnSelectionInterface(snapshot: PortalPageSnapshot, portalUrl: string, now = new Date()): LearnedPortalAdapter {
@@ -303,6 +363,20 @@ function parseAdapter(value: unknown): LearnedPortalAdapter | undefined {
     entryUrl: safeSameOriginUrl(value.entryUrl, origin) ?? portalUrl,
     evidence: Array.isArray(value.evidence) ? value.evidence.map((item) => cleanText(item, 160)).filter(Boolean).slice(0, 5) : [],
     candidates,
+  };
+}
+
+function parseSchedule(value: unknown): SelectionRunSchedule | undefined {
+  if (!isRecord(value)) return undefined;
+  const startsAt = safeIsoDate(value.startsAt);
+  const preflight = integerInRange(value.preflightMinutes, 1, 10);
+  const statuses: SelectionScheduleStatus[] = ["scheduled", "triggered", "expired"];
+  if (!startsAt || !preflight || ![1, 3, 5, 10].includes(preflight) || !statuses.includes(value.status as SelectionScheduleStatus)) return undefined;
+  return {
+    startsAt,
+    preflightMinutes: preflight as 1 | 3 | 5 | 10,
+    status: value.status as SelectionScheduleStatus,
+    lastTriggeredAt: safeIsoDate(value.lastTriggeredAt),
   };
 }
 

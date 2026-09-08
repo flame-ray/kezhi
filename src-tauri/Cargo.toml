@@ -1,6 +1,6 @@
 [package]
 name = "kezhi"
-version = "0.4.0"
+version = "0.4.1"
 description = "开放、流畅、隐私优先的大学课表"
 authors = ["Kezhi Contributors"]
 edition = "2021"

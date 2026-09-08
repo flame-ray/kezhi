@@ -27,10 +27,10 @@ import { resolveSchoolLoginUrl } from "./importing/schoolCatalog";
 import { resolveAppBackDestination } from "./navigation/backNavigation";
 import { installAndroidBackHandler } from "./platform/androidBack";
 import { fetchPortalResource, fetchSchoolSchedule, getSchoolLoginStatus, isTauriRuntime, loadScheduleSnapshot, openSchoolLogin, prepareSchoolSession, readPortalPageSnapshot, saveScheduleSnapshot, type SchoolLoginRequest } from "./platform/tauriBridge";
-import { clearScheduledCourseNotifications, ensureNotificationPermission, replaceScheduledCourseNotifications, sendReminderTestNotification } from "./platform/notifications";
+import { clearScheduledCourseNotifications, clearScheduledSelectionNotifications, ensureNotificationPermission, replaceScheduledCourseNotifications, replaceScheduledSelectionNotifications, sendReminderTestNotification } from "./platform/notifications";
 import { getRuntimeCapabilities } from "./platform/runtime";
 import { buildReminderSchedule, normalizeReminderSettings } from "./reminders/reminderSchedule";
-import { applySeatPayload, nextMonitorDelaySeconds, normalizeSelectionAssistant, recordMonitorFailure } from "./selection/selectionAssistant";
+import { applySeatPayload, expireSelectionSchedule, markSelectionScheduleTriggered, nextMonitorDelaySeconds, normalizeSelectionAssistant, recordMonitorFailure, selectionSchedulePhase } from "./selection/selectionAssistant";
 import { applyScheduleSyncPlan, createScheduleSyncPlan, type ScheduleSyncPlan, type SyncChoice } from "./sync/scheduleSync";
 import { Icon } from "./ui/Icon";
 
@@ -84,6 +84,7 @@ export function App() {
   const reminderSyncGeneration = useRef(0);
   const reminderSyncQueue = useRef<Promise<void>>(Promise.resolve());
   const selectionMonitorInFlight = useRef(false);
+  const selectionScheduleNotificationRef = useRef("");
   const [scheduledReminderCount, setScheduledReminderCount] = useState(0);
   const importWizardRef = useRef<ImportWizardHandle>(null);
   const appBackHandlerRef = useRef<() => void>(() => undefined);
@@ -491,6 +492,75 @@ export function App() {
     // Polling is rescheduled whenever the persisted monitor state changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [capabilities.native, selectionAssistant.adapter?.monitorEndpoint, selectionAssistant.consecutiveFailures, selectionAssistant.intervalSeconds, selectionAssistant.monitorEnabled, selectionAssistant.portalUrl, selectionAssistant.targets.length]);
+
+  useEffect(() => {
+    if (!capabilities.native) return;
+    const schedule = selectionAssistant.schedule;
+    const signature = schedule?.status === "scheduled" ? `${schedule.startsAt}:${schedule.preflightMinutes}` : "";
+    if (selectionScheduleNotificationRef.current === signature) return;
+    selectionScheduleNotificationRef.current = signature;
+    const operation = schedule?.status === "scheduled"
+      ? replaceScheduledSelectionNotifications(new Date(schedule.startsAt), schedule.preflightMinutes)
+      : clearScheduledSelectionNotifications();
+    void operation.catch((error) => setToast(`选课定时提醒设置失败：${error instanceof Error ? error.message : String(error)}`));
+  }, [capabilities.native, selectionAssistant.schedule?.preflightMinutes, selectionAssistant.schedule?.startsAt, selectionAssistant.schedule?.status]);
+
+  useEffect(() => {
+    const assistant = selectionAssistant;
+    const schedule = assistant.schedule;
+    if (!capabilities.native || !schedule || schedule.status !== "scheduled" || !assistant.portalUrl) return;
+    let cancelled = false;
+    let timer: number | undefined;
+
+    const waitForStart = () => {
+      if (cancelled) return;
+      const phase = selectionSchedulePhase(schedule);
+      if (phase === "expired") {
+        setSnapshot((current) => ({ ...current, selectionAssistant: expireSelectionSchedule(normalizeSelectionAssistant(current.selectionAssistant)) }));
+        setToast("选课预约已经过期，请重新设置时间");
+        return;
+      }
+      const remaining = Date.parse(schedule.startsAt) - Date.now();
+      if (remaining > 0) {
+        timer = window.setTimeout(waitForStart, Math.min(remaining, 60_000));
+        return;
+      }
+
+      setSnapshot((current) => ({ ...current, selectionAssistant: markSelectionScheduleTriggered(normalizeSelectionAssistant(current.selectionAssistant)) }));
+      const endpoint = assistant.adapter?.monitorEndpoint;
+      const entryUrl = assistant.adapter?.entryUrl || assistant.portalUrl;
+      const fetchTask = endpoint ? fetchSelectionResource(assistant.portalUrl, endpoint) : Promise.resolve<string | undefined>(undefined);
+      const openTask = openSelectionPortal(entryUrl);
+      void Promise.allSettled([fetchTask, openTask]).then(([checked, opened]) => {
+        if (cancelled) return;
+        const capturedResult = checked.status === "fulfilled" && checked.value
+          ? applySeatPayload(markSelectionScheduleTriggered(assistant), checked.value)
+          : undefined;
+        const availableCount = capturedResult?.availableCount ?? 0;
+        setSnapshot((current) => {
+          let next = markSelectionScheduleTriggered(normalizeSelectionAssistant(current.selectionAssistant));
+          if (checked.status === "fulfilled" && checked.value) {
+            const result = applySeatPayload(next, checked.value);
+            next = result.state;
+          } else if (checked.status === "rejected") {
+            next = recordMonitorFailure(next, checked.reason instanceof Error ? checked.reason.message : String(checked.reason));
+          }
+          return { ...current, selectionAssistant: next };
+        });
+        if (availableCount) setToast(`预约已触发：发现 ${availableCount} 门课程有余量，请立即在官网确认`);
+        else if (opened.status === "fulfilled") setToast("预约已触发，已快速打开学校官方选课页面");
+        else setToast(`预约已触发，但页面打开失败：${opened.reason instanceof Error ? opened.reason.message : String(opened.reason)}`);
+      });
+    };
+
+    waitForStart();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+    // The timer owns its minute-by-minute wakeups until the persisted schedule changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capabilities.native, selectionAssistant.schedule?.startsAt, selectionAssistant.schedule?.status]);
 
   const saveGrade = (grade: GradeRecord) => {
     setSnapshot((current) => ({ ...current, grades: mergeGrades(normalizeGrades(current.grades), [grade]) }));

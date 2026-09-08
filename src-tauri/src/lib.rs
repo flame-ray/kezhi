@@ -379,7 +379,7 @@ async fn fetch_schedule_payload(
     }
     let referer = checked_login_url(site)?.to_string();
     let user_agent = if user_agent.trim().is_empty() {
-        "Kezhi/0.4.0"
+        "Kezhi/0.4.1"
     } else {
         user_agent
     };
@@ -483,7 +483,7 @@ async fn fetch_portal_payload(
         .header(
             reqwest::header::USER_AGENT,
             if user_agent.trim().is_empty() {
-                "Kezhi/0.4.0"
+                "Kezhi/0.4.1"
             } else {
                 user_agent
             },
@@ -555,7 +555,7 @@ async fn fetch_school_schedule(
         .collect::<Vec<_>>()
         .join("; ");
 
-    fetch_schedule_payload(site, &request, cookie_header, "Kezhi/0.4.0 WebView2").await
+    fetch_schedule_payload(site, &request, cookie_header, "Kezhi/0.4.1 WebView2").await
 }
 
 #[cfg(desktop)]
@@ -579,7 +579,7 @@ async fn fetch_portal_resource(
         .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
         .collect::<Vec<_>>()
         .join("; ");
-    fetch_portal_payload(&site, endpoint, cookie_header, "Kezhi/0.4.0 WebView2").await
+    fetch_portal_payload(&site, endpoint, cookie_header, "Kezhi/0.4.1 WebView2").await
 }
 
 #[cfg(target_os = "android")]

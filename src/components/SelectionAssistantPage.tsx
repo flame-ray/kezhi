@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useRef, useState } from "react";
-import { applySeatPayload, defaultSelectionAssistant, learnSelectionInterface, recordMonitorFailure, type PortalPageSnapshot, type SelectionAssistantState, type SelectionTarget } from "../selection/selectionAssistant";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { applySeatPayload, armSelectionSchedule, defaultSelectionAssistant, learnSelectionInterface, recordMonitorFailure, selectionSchedulePhase, type PortalPageSnapshot, type SelectionAssistantState, type SelectionTarget } from "../selection/selectionAssistant";
 import { Icon } from "../ui/Icon";
 
 interface SelectionAssistantPageProps {
@@ -29,8 +29,19 @@ export function SelectionAssistantPage({ state: suppliedState, nativeAvailable, 
   const [courseCode, setCourseCode] = useState("");
   const [courseName, setCourseName] = useState("");
   const [teacher, setTeacher] = useState("");
+  const [scheduleTime, setScheduleTime] = useState(() => toLocalDateTimeInput(new Date(Date.now() + 10 * 60_000)));
+  const [preflightMinutes, setPreflightMinutes] = useState(5);
+  const [clockNow, setClockNow] = useState(() => Date.now());
   const checkingRef = useRef(false);
   const safeCandidates = useMemo(() => state.adapter?.candidates.filter((candidate) => candidate.safeToPoll) ?? [], [state.adapter]);
+  const schedulePhase = selectionSchedulePhase(state.schedule, new Date(clockNow));
+  const scheduleRemaining = state.schedule ? Math.max(0, Date.parse(state.schedule.startsAt) - clockNow) : 0;
+
+  useEffect(() => {
+    if (!state.schedule || state.schedule.status !== "scheduled") return;
+    const timer = window.setInterval(() => setClockNow(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, [state.schedule]);
 
   const update = (patch: Partial<SelectionAssistantState>) => onChange({ ...state, ...patch, requireConfirmation: true });
 
@@ -112,6 +123,21 @@ export function SelectionAssistantPage({ state: suppliedState, nativeAvailable, 
     if (url) void onOpenPortal(url).catch((error) => onToast(error instanceof Error ? error.message : String(error)));
   };
 
+  const armSchedule = () => {
+    if (!nativeAvailable || !state.adapter || !state.targets.length) {
+      onToast("请先学习选课入口并添加候选课程");
+      return;
+    }
+    try {
+      const armed = armSelectionSchedule({ ...state, monitorEnabled: false }, scheduleTime, preflightMinutes);
+      onChange(armed);
+      setClockNow(Date.now());
+      onToast("预约已保存；系统会在预热和开始时提醒你");
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   return (
     <div className="view-stage data-page-stage" key="selection">
       <section className="selection-page page-surface">
@@ -139,6 +165,20 @@ export function SelectionAssistantPage({ state: suppliedState, nativeAvailable, 
           <div className="monitor-controls"><label><span>检查间隔</span><select value={state.intervalSeconds} onChange={(event) => update({ intervalSeconds: Number(event.target.value) })}><option value="30">30 秒</option><option value="45">45 秒</option><option value="60">1 分钟</option><option value="120">2 分钟</option><option value="300">5 分钟</option></select></label><button className="soft-button" disabled={!nativeAvailable || !state.adapter?.monitorEndpoint || !state.targets.length || checking} onClick={() => void runCheck(true)}><Icon name="refresh" />{checking ? "检查中" : "立即检查"}</button><button className={`monitor-toggle ${state.monitorEnabled ? "active" : ""}`} disabled={!nativeAvailable || !state.adapter?.monitorEndpoint || !state.targets.length} onClick={() => update({ monitorEnabled: !state.monitorEnabled, targets: state.targets.map((target) => ({ ...target, status: state.monitorEnabled ? "paused" : "watching" })) })}><i /><span>{state.monitorEnabled ? "监控已开启" : "开启监控"}</span></button><button className="primary-button" disabled={!nativeAvailable || !state.portalUrl} onClick={openOfficialPage}><Icon name="arrow-right" />前往官方页面确认</button></div>
           <div className="confirmation-note"><Icon name="shield" /><span><strong>不会自动提交选课</strong><small>课织不会绕过验证码、抢占登录会话或高频请求；发现余量后由你在学校官方页面完成确认。</small></span></div>
         </section>
+
+        <section className="selection-schedule-card">
+          <div className="section-heading"><span className="step-badge">4</span><div><h3>定时快速确认</h3><p>提前预热登录；到点时一次查询和打开官方页面并行执行。</p></div></div>
+          <div className="schedule-controls">
+            <label><span>选课开始时间</span><input type="datetime-local" value={scheduleTime} min={toLocalDateTimeInput(new Date(Date.now() + 5_000))} onChange={(event) => setScheduleTime(event.target.value)} /></label>
+            <label><span>提前提醒</span><select value={preflightMinutes} onChange={(event) => setPreflightMinutes(Number(event.target.value))}><option value="1">1 分钟</option><option value="3">3 分钟</option><option value="5">5 分钟</option><option value="10">10 分钟</option></select></label>
+            <button className="soft-button" disabled={!nativeAvailable || !state.portalUrl} onClick={openOfficialPage}><Icon name="refresh" />预热登录</button>
+            {state.schedule?.status === "scheduled"
+              ? <button className="soft-button danger-soft" onClick={() => update({ schedule: undefined })}><Icon name="close" />取消预约</button>
+              : <button className="primary-button" disabled={!nativeAvailable || !state.adapter || !state.targets.length} onClick={armSchedule}><Icon name="check" />预约辅助</button>}
+          </div>
+          {state.schedule && <div className={`schedule-status phase-${schedulePhase}`}><span className="schedule-pulse" /><div><strong>{schedulePhaseLabel(schedulePhase)}</strong><small>{new Date(state.schedule.startsAt).toLocaleString("zh-CN", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</small></div><b>{schedulePhase === "waiting" || schedulePhase === "preflight" ? formatCountdown(scheduleRemaining) : schedulePhase === "triggered" ? "已触发" : "待处理"}</b></div>}
+          <div className="confirmation-note compact"><Icon name="warning" /><span><strong>极快的是本地响应，不是高频轰炸</strong><small>应用存活时会到点立即并行执行；退到后台时由系统通知唤醒你。验证码、提交按钮和学校限流仍由官网控制。</small></span></div>
+        </section>
       </section>
     </div>
   );
@@ -154,4 +194,21 @@ function shortEndpoint(value: string): string {
 
 function newId(prefix: string): string {
   return typeof crypto.randomUUID === "function" ? `${prefix}-${crypto.randomUUID()}` : `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function toLocalDateTimeInput(date: Date): string {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 19);
+}
+
+function formatCountdown(milliseconds: number): string {
+  const seconds = Math.ceil(milliseconds / 1_000);
+  const hours = Math.floor(seconds / 3_600);
+  const minutes = Math.floor(seconds % 3_600 / 60);
+  const rest = seconds % 60;
+  return [hours, minutes, rest].map((value) => String(value).padStart(2, "0")).join(":");
+}
+
+function schedulePhaseLabel(phase: ReturnType<typeof selectionSchedulePhase>): string {
+  return { inactive: "未预约", waiting: "等待开始", preflight: "请预热登录", due: "正在快速打开", triggered: "本次预约已触发", expired: "预约已过期" }[phase];
 }

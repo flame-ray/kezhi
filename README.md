@@ -1,6 +1,6 @@
 # 课织（Kezhi）
 
-当前版本 **0.4.5**：新增 Android 手机系统日历导入、底栏弹性滑动选中背景，修复翻周与长按添加冲突。入口、限制与测试见 [0.4.5 更新说明](docs/RELEASE_0.4.5.md)。本轮 APK 为本地测试包，尚未发布 GitHub。
+当前版本 **0.4.5**：新增 Android 手机系统日历导入、底栏弹性滑动选中背景，修复翻周与长按添加冲突。入口、限制与测试见 [0.4.5 更新说明](docs/RELEASE_0.4.5.md)。安装包已发布到 [GitHub Releases](https://github.com/flame-ray/kezhi/releases/tag/v0.4.5)。
 
 课织是一个面向 Windows 10/11 与 Android 的本地优先大学课表应用。0.4.4 版本统一了 Material 风格的亮暗主题、9 类弹窗与底部面板、日期跟手滑动和按钮反馈。支持弹窗退场、下拉收起、嵌套焦点恢复及系统减少动态效果。账号档案保存在本机 SQLite，密码独立存入 Windows Credential Manager 或由 Android Keystore 保护的密文。应用继续提供通用选课助手、成绩中心、周课表、每日安排、ICS 导入导出、单双周、多套作息与系统提醒。详见 [0.4.4 界面与动效验收](docs/UI_MOTION_AUDIT_0.4.4.md)。
 

@@ -32,8 +32,12 @@
 
 ## 安装包
 
-Android arm64，版本 0.4.5 / versionCode 4005，沿用本机测试证书；不包含公开商店签名。未发布 GitHub。
+本版本汇总发布 0.4.1～0.4.5 期间完成的功能和修复；旧版本没有准确的完整源码标签，因此不补建与源码不一致的历史 Release。
+
+Android arm64，版本 0.4.5 / versionCode 4005，沿用本机测试证书；不包含公开商店签名。
 
 - 文件：`Kezhi-0.4.5-arm64-test-signed.apk`，20,067,778 字节（20.07 MB）。
 - SHA-256：`0A0987404E5BB08120883D57A219046BD8C530A37446FD97DBE22D708EFF71CD`。
 - APK v2/v3 签名和 16 KB 页对齐校验通过；Manifest 含日历读写权限；发布混淆映射保留插件类、权限回调及参数字段。
+- Windows 文件：`Kezhi-0.4.5-windows-x64-setup.exe`，4,192,203 字节（4.19 MB），未配置公开代码签名。
+- Windows SHA-256：`44B51F2B4F5DF2323812836C7F4180FD746348876336113ABB3E22D28438352A`。

@@ -7,7 +7,8 @@ import { createLocalAccount, loadLocalAccounts } from "../importing/accountStore
 import { parseScheduleBackup } from "../importing/backupImport";
 import { resolveSchoolLoginUrl, schoolCatalog, type SchoolDefinition } from "../importing/schoolCatalog";
 import { parseZhengfangSchedule, type ScheduleAdapterResult } from "../importing/zhengfangAdapter";
-import { deleteLoginCredential, fetchSchoolSchedule, getLoginCredentialStatus, getSchoolLoginStatus, hideSchoolLogin, openSchoolLogin, saveLoginCredential } from "../platform/tauriBridge";
+import { parsePortalSchedule } from "../importing/portalScheduleAdapter";
+import { deleteLoginCredential, fetchSchoolSchedule, getLoginCredentialStatus, getSchoolLoginStatus, hideSchoolLogin, openSchoolLogin, readPortalPageSnapshot, saveLoginCredential } from "../platform/tauriBridge";
 import { getRuntimeCapabilities } from "../platform/runtime";
 import { Icon } from "../ui/Icon";
 import { DialogSurface } from "../ui/DialogSurface";
@@ -69,8 +70,9 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
   const [restoreError, setRestoreError] = useState<string>();
   const fileInput = useRef<HTMLInputElement>(null);
   const capabilities = getRuntimeCapabilities();
-  const schoolSupported = school.id === "ndnu";
-  const loginCapable = schoolSupported && capabilities.schoolLogin !== "unavailable";
+  const schoolSupported = capabilities.schoolLogin !== "unavailable";
+  const loginCapable = schoolSupported;
+  const loginPurpose = school.id === "ndnu" ? "schedule" as const : "schedule-page" as const;
   const embeddedLogin = capabilities.schoolLogin === "embedded-window";
   const manualImportFlow = !loginCapable;
   const wizardSteps = manualImportFlow
@@ -141,7 +143,7 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
     if (!embeddedLogin || loginState !== "opening" || !activeAccount) return;
     let cancelled = false;
     let checking = false;
-    const request = { schoolId: school.id, accountId: activeAccount.id };
+    const request = { schoolId: school.id, accountId: activeAccount.id, loginUrl: school.loginUrl, purpose: loginPurpose };
     const pollStatus = async () => {
       if (checking) return;
       checking = true;
@@ -173,7 +175,7 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
       window.clearTimeout(firstCheck);
       window.clearInterval(interval);
     };
-  }, [activeAccount, embeddedLogin, loginState, school.id]);
+  }, [activeAccount, embeddedLogin, loginState, school.id, school.loginUrl, loginPurpose]);
 
   const continueFromSchoolUrl = () => {
     const nextSchool = resolveSchoolLoginUrl(schoolUrl);
@@ -213,21 +215,18 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
 
   const launchLogin = async () => {
     setLoginError(undefined);
-    if (!schoolSupported) {
-      setLoginError("该学校的原生登录适配器尚未完成。");
-      return;
-    }
     if (!loginCapable) {
       setLoginError(
         "当前环境无法隔离学校登录会话，请使用 Windows 或 Android 原生版。",
       );
       return;
     }
-    const account = await resolveAccount();
-    setActiveAccount(account);
-    applyAccountCalendar(account);
     setLoginState("opening");
     try {
+      if (password && !accountLoginName.trim()) throw new Error("保存密码时请填写对应账号；也可以清空密码，直接进入学校网页登录。");
+      const account = await resolveAccount();
+      setActiveAccount(account);
+      applyAccountCalendar(account);
       if (rememberPassword && password) {
         await saveLoginCredential({ schoolId: school.id, accountId: account.id, username: account.loginName, password });
         setCredentialSaved(true);
@@ -236,7 +235,7 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
         await deleteLoginCredential({ schoolId: school.id, accountId: account.id });
         setCredentialSaved(false);
       }
-      await openSchoolLogin({ schoolId: school.id, accountId: account.id });
+      await openSchoolLogin({ schoolId: school.id, accountId: account.id, loginUrl: school.loginUrl, purpose: loginPurpose });
     } catch (error) {
       setLoginState("idle");
       setLoginError(error instanceof Error ? error.message : String(error));
@@ -272,7 +271,7 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
     setLoginError(undefined);
     setLoginState("checking");
     try {
-      const status = await getSchoolLoginStatus({ schoolId: school.id, accountId: activeAccount.id });
+      const status = await getSchoolLoginStatus({ schoolId: school.id, accountId: activeAccount.id, loginUrl: school.loginUrl, purpose: loginPurpose });
       if (!status.windowOpen) {
         setLoginState("idle");
         setLoginError("登录窗口已关闭。请重新打开，完成登录后再检查。");
@@ -280,12 +279,12 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
       }
       if (!status.authenticated) {
         setLoginState("opening");
-        setLoginError("尚未检测到有效登录会话。请在学校页面完成登录，再返回这里检查。");
+        setLoginError(loginPurpose === "schedule-page" ? "请先在浏览器中登录并打开课表页，再点击导入或返回检查；仅打开学校首页还不能读取课表。" : "尚未检测到有效登录会话。请在学校页面完成登录，再返回这里检查。");
         return;
       }
       setLoginError(undefined);
       setLoginState("connected");
-      await hideSchoolLogin({ schoolId: school.id, accountId: activeAccount.id });
+      await hideSchoolLogin({ schoolId: school.id, accountId: activeAccount.id, loginUrl: school.loginUrl, purpose: loginPurpose });
       if (embeddedLogin) setStep(3);
     } catch (error) {
       setLoginState("opening");
@@ -314,14 +313,16 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
     setAnalyzing(true);
     setReadError(undefined);
     try {
-      const payload = await fetchSchoolSchedule({
-        schoolId: school.id,
-        accountId: activeAccount.id,
-        academicYear,
-        semester,
-      });
-      const result = parseZhengfangSchedule(payload.rows);
-      if (result.courses.length === 0) throw new Error("该学期没有读取到有效课程，请确认学年和学期");
+      let result: ScheduleAdapterResult;
+      if (school.id === "ndnu") {
+        const payload = await fetchSchoolSchedule({ schoolId: school.id, accountId: activeAccount.id, loginUrl: school.loginUrl, purpose: "schedule", academicYear, semester });
+        result = parseZhengfangSchedule(payload.rows);
+      } else {
+        const snapshot = await readPortalPageSnapshot({ schoolId: school.id, accountId: activeAccount.id, loginUrl: school.loginUrl, purpose: loginPurpose });
+        const generic = parsePortalSchedule(snapshot);
+        result = { courses: generic.courses, sourceRows: generic.sourceRows, warnings: generic.warnings };
+      }
+      if (result.courses.length === 0) throw new Error(school.id === "ndnu" ? "该学期没有读取到有效课程，请确认学年和学期" : result.warnings.join("；") || "当前网页没有识别到课表。请返回上一步，重新打开浏览器并进入实际课表页面。");
       const aligned = alignImportedWeeks(result.courses, calendarRecommendation.importWeekOffset);
       setWeekOffsetApplied(aligned.appliedOffset);
       setAdapterResult({ ...result, courses: aligned.courses });
@@ -356,7 +357,7 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
             <div className="login-side">
               <label className="account-session-field"><span>本地账号</span><select value={selectedAccountId} disabled={loginState !== "idle"} onChange={(event) => { setSelectedAccountId(event.target.value); setLoginError(undefined); }}>{schoolAccounts.map((account) => <option value={account.id} key={account.id}>{account.label}</option>)}<option value="new">＋ 新账号</option></select></label>
               {selectedAccountId !== "new" && <div className="saved-account-name">已保存账号：{schoolAccounts.find((account) => account.id === selectedAccountId)?.loginName || "旧版账号未记录学号"}</div>}
-              {selectedAccountId === "new" && <label className="account-session-field"><span>学号 / 登录账号</span><input value={loginName} disabled={loginState !== "idle"} maxLength={80} autoCapitalize="none" autoCorrect="off" onChange={(event) => setLoginName(event.target.value)} placeholder="仅保存在本机" /><small>用于识别、切换账号和登录页自动填充</small></label>}
+              {selectedAccountId === "new" && <label className="account-session-field"><span>学号 / 登录账号（选填）</span><input value={loginName} disabled={loginState !== "idle"} maxLength={80} autoCapitalize="none" autoCorrect="off" onChange={(event) => setLoginName(event.target.value)} placeholder="可直接在学校网页输入" /><small>留空也能打开登录页；需要保存密码时再填写账号</small></label>}
               {selectedAccountId === "new" && <label className="account-session-field"><span>账号备注</span><input value={accountLabel} disabled={loginState !== "idle"} maxLength={40} onChange={(event) => setAccountLabel(event.target.value)} placeholder={`账号 ${schoolAccounts.length + 1}`} /><small>例如“主账号”或“辅修账号”</small></label>}
               {loginCapable && <label className="account-session-field credential-password-field"><span>登录密码</span><input type="password" value={password} disabled={loginState !== "idle"} maxLength={256} autoComplete="current-password" onChange={(event) => { setPassword(event.target.value); setRememberPassword(true); }} placeholder={credentialChecking ? "正在检查系统保险库…" : credentialSaved ? "已安全保存；留空则保持原密码" : "输入后保存到系统保险库"} /><small>密码不会写入 SQLite、JSON 备份或 Git</small></label>}
               {loginCapable && <div className="credential-actions"><label><input type="checkbox" checked={rememberPassword} disabled={loginState !== "idle"} onChange={(event) => setRememberPassword(event.target.checked)} /><span><strong>自动保存并填充</strong><small>{credentialSaved ? "系统保险库中已有凭据" : "仅保存在当前设备的安全区域"}</small></span></label>{credentialSaved && <button type="button" disabled={loginState !== "idle"} onClick={() => void removeSavedCredential()}>删除已保存密码</button>}</div>}
@@ -409,7 +410,7 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
           <button className="cancel-button" onClick={goBack}>{step > 1 ? "上一步" : "取消"}</button>
           {step === 1 && <button className="primary-button" disabled={!schoolUrl.trim()} onClick={continueFromSchoolUrl}>继续<Icon name="arrow-right" /></button>}
           {step === 2 && loginState === "idle" && (loginCapable
-            ? <button className="primary-button" disabled={accountsLoading || (selectedAccountId === "new" && !loginName.trim())} onClick={() => void launchLogin()}>{accountsLoading ? "正在读取账号…" : embeddedLogin ? "进入学校登录" : "打开内置浏览器"}</button>
+            ? <button className="primary-button" disabled={accountsLoading} onClick={() => void launchLogin()}>{accountsLoading ? "正在读取账号…" : embeddedLogin ? "进入学校登录" : "打开内置浏览器"}</button>
             : <button className="primary-button" disabled={accountsLoading || (selectedAccountId === "new" && !loginName.trim())} onClick={() => void saveAccountOnly()}>{accountsLoading ? "正在读取账号…" : "保存并继续"}</button>)}
           {step === 2 && (loginState === "opening" || loginState === "checking") && <div className="footer-actions"><button className="soft-button" disabled={loginState === "checking"} onClick={() => void launchLogin()}>重新打开</button><button className="primary-button" disabled={loginState === "checking"} onClick={() => void checkLogin()}>{loginState === "checking" ? "正在检查…" : "我已完成登录"}</button></div>}
           {step === 2 && loginState === "connected" && <button className="primary-button" onClick={() => setStep(3)}>继续<Icon name="arrow-right" /></button>}

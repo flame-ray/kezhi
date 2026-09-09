@@ -21,6 +21,9 @@ fs.mkdirSync(out,{recursive:true});
  await test("long press still adds a course",async()=>{
    await cdp.send("Input.dispatchTouchEvent",{type:"touchStart",touchPoints:[{x:300,y:235}]});await wait(950);
    await cdp.send("Input.dispatchTouchEvent",{type:"touchEnd",touchPoints:[]});await wait();
+   assert.equal(await page.locator(".course-range-picker").count(),1);
+   assert.equal(await page.locator(".course-editor-dialog").count(),0);
+   await page.getByRole("button",{name:"按选定时间添加课程",exact:true}).click();await wait();
    assert.equal(await page.locator(".course-editor-dialog").count(),1);
  });
  await test("sheet short drag settles without re-entering",async()=>{

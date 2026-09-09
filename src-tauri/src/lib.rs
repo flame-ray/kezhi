@@ -366,7 +366,8 @@ fn checked_login_site_url(site: &LoginSite) -> Result<tauri::Url, String> {
 fn window_label(request: &SchoolLoginRequest) -> Result<String, String> {
     let school_id = checked_identifier(&request.school_id, "学校")?;
     let account_id = checked_identifier(&request.account_id, "账号")?;
-    Ok(format!("school-login-{school_id}-{account_id}"))
+    let suffix = if request.purpose.as_deref() == Some("schedule-page") { "-page" } else { "" };
+    Ok(format!("school-login-{school_id}-{account_id}{suffix}"))
 }
 
 #[cfg(desktop)]
@@ -453,11 +454,13 @@ fn create_login_window(
         .min_inner_size(860.0, 620.0)
         .center()
         .visible(interactive)
-        .initialization_script(PORTAL_LEARNER_SCRIPT)
         .data_directory(session_directory)
         .on_navigation(move |next_url| {
             next_url.scheme() == "https" && next_url.host_str() == Some(allowed_host.as_str())
         });
+    if request.purpose.as_deref() != Some("schedule-page") {
+        builder = builder.initialization_script(PORTAL_LEARNER_SCRIPT);
+    }
     if let Some(credential) = &saved_credential {
         builder = builder.initialization_script(credential_vault::autofill_script(credential)?);
     }
@@ -496,18 +499,24 @@ async fn school_login_status(
     let has_session_cookie = cookies.iter().any(|cookie| {
         matches!(
             cookie.name().to_ascii_lowercase().as_str(),
-            "jsessionid" | "session" | "sessionid"
+            "jsessionid" | "session" | "sessionid" | "sid" | "token" | "authtoken" | "ticket"
         )
-    });
+    }) || (site.id != "ndnu" && !cookies.is_empty());
     let current_url = window.url().map_err(|error| error.to_string())?;
     let left_login_page = current_url.scheme() == "https"
         && current_url.host_str() == Some(site.allowed_host.as_str())
         && !current_url.path().to_ascii_lowercase().contains("login");
-    let authenticated = has_session_cookie && left_login_page;
+    let mut authenticated = has_session_cookie && left_login_page;
 
     // 选课学习模式需要读取页面结构和用户实际操作过的写请求，
     // 否则前端无从推断提交接口，用户只能自己去浏览器里抓包。
-    let page_snapshot = if request.purpose.as_deref() == Some("selection") {
+    let page_snapshot = if request.purpose.as_deref() == Some("schedule-page") {
+        let snapshot = collect_schedule_snapshot(&window);
+        authenticated = snapshot.as_ref().and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+            .and_then(|value| value.get("tables").and_then(|tables| tables.as_array()).map(|tables| !tables.is_empty()))
+            .unwrap_or(false);
+        snapshot
+    } else if authenticated {
         collect_portal_snapshot(&window)
     } else {
         None
@@ -600,17 +609,31 @@ const PORTAL_LEARNER_SCRIPT: &str = r#"
       url: sameOrigin(entry.name), initiatorType: clean(entry.initiatorType, 30),
     })).filter((entry) => entry.url && ['fetch', 'xmlhttprequest', 'script', 'iframe'].includes(entry.initiatorType));
     const headings = Array.from(document.querySelectorAll('h1,h2,h3,[role="heading"],nav button')).slice(0, 80).map((node) => clean(node.innerText || node.textContent, 120)).filter(Boolean);
-    return JSON.stringify({ pageUrl: location.href, title: clean(document.title, 160), headings, forms, links, resources, requests: log.slice() });
+    const tables = Array.from(document.querySelectorAll('table')).slice(0, 30).map((table) => {
+      const rows = Array.from(table.querySelectorAll('tr')).slice(0, 80).map((row) => Array.from(row.querySelectorAll('th,td')).slice(0, 30).map((cell) => clean(cell.innerText || cell.textContent, 500)));
+      return { caption: clean(table.querySelector('caption')?.textContent, 160), headers: rows[0] || [], rows };
+    }).filter((table) => table.rows.length > 1);
+    return JSON.stringify({ pageUrl: location.href, title: clean(document.title, 160), headings, forms, links, resources, tables, requests: log.slice() });
   };
 })();
 "#;
 
 #[cfg(desktop)]
 fn collect_portal_snapshot(window: &tauri::WebviewWindow) -> Option<String> {
+    collect_snapshot_script(window, "window.__kezhiCollect ? window.__kezhiCollect() : ''")
+}
+
+#[cfg(desktop)]
+fn collect_schedule_snapshot(window: &tauri::WebviewWindow) -> Option<String> {
+    collect_snapshot_script(window, include_str!("../gen/android/app/src/main/assets/kezhi-schedule-snapshot.js"))
+}
+
+#[cfg(desktop)]
+fn collect_snapshot_script(window: &tauri::WebviewWindow, script: &str) -> Option<String> {
     let (sender, receiver) = std::sync::mpsc::channel::<String>();
     window
         .eval_with_callback(
-            "window.__kezhiCollect ? window.__kezhiCollect() : ''",
+            script,
             move |value| {
                 let _ = sender.send(value);
             },
@@ -1173,7 +1196,8 @@ async fn school_login_status(
     let same_account = status.account_id == account_id;
     Ok(LoginStatus {
         window_open: same_account && status.window_open,
-        authenticated: same_account && status.authenticated && !status.cookie_header.is_empty(),
+        authenticated: same_account && status.authenticated
+            && (request.purpose.as_deref() == Some("schedule-page") || !status.cookie_header.is_empty()),
         session_cookie_count: if same_account && !status.cookie_header.is_empty() {
             1
         } else {

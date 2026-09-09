@@ -8,7 +8,7 @@ export interface SchoolLoginRequest {
   schoolId: string;
   accountId: string;
   loginUrl?: string;
-  purpose?: "schedule" | "selection";
+  purpose?: "schedule" | "schedule-page" | "selection";
 }
 
 export interface LoginWindowInfo {

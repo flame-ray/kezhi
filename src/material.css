@@ -1,4 +1,32 @@
 /* Material-inspired design tokens. Keep layout mechanics in styles.css. */
+.course-stack-count { flex-shrink: 0; align-self: stretch; font-size: 10px; font-weight: 600; line-height: 1.6; color: var(--text); white-space: nowrap; }
+.course-stack-period { font-size: 10px; }
+.overlap-courses-dialog { width: min(560px, 100%); }
+.overlap-course-list { display: grid; gap: 10px; padding: 8px 20px 24px; overflow: auto; min-height: 0; }
+.overlap-course-item { display: flex; flex-direction: column; gap: 7px; padding: 16px; min-width: 0; text-align: left; border-radius: 18px; color: var(--text); background: var(--course-bg); }
+.overlap-course-item strong { font-size: 16px; font-weight: 600; }
+.overlap-course-item span, .overlap-course-item small { font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.overlap-course-item small { color: var(--muted); }
+/* Week-only visual hints never change the stored course recurrence. */
+:root .course-card.not-this-week { opacity: .38; z-index: 1; }
+:root .course-card.before-teaching:not(.not-this-week) { opacity: .56; }
+:root .course-card.not-this-week.selected { opacity: .65; }
+.week-swipe-viewport { position: relative; }
+.week-swipe-viewport:has(.course-range-picker) .active-page { padding-bottom: 120px; }
+.course-draft-slot { position: relative; z-index: 6; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 5px; min-width: 0; margin: 3px 2px; padding: 4px 0; border: 2px solid var(--primary); border-radius: 12px; color: var(--on-primary-container); background: var(--primary-container); animation: draft-appear 180ms var(--ease-standard); }
+.course-draft-slot svg { width: 26px; height: 26px; }
+.course-draft-slot small { font-size: 10px; white-space: nowrap; }
+.course-range-picker { position: absolute; z-index: 12; bottom: 10px; left: 10px; right: 10px; max-width: 500px; margin: 0 auto; padding: 10px 12px; border: 1px solid var(--outline); border-radius: 22px; color: var(--text); background: var(--surface); box-shadow: var(--shadow); animation: draft-appear 180ms var(--ease-standard); }
+.draft-time-caption { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.draft-time-caption small { color: var(--muted); font-size: 12px; font-weight: 400; }
+.draft-time-controls { display: flex; align-items: center; justify-content: space-between; gap: 3px; }
+.draft-time-controls > span { font-size: 11px; color: var(--muted); }
+.draft-time-controls button { flex: 1; min-width: 0; max-width: 48px; min-height: 44px; padding: 0; display: grid; place-items: center; border-radius: 14px; font-size: 22px; color: var(--on-primary-container); background: var(--surface-soft); }
+.draft-time-controls svg { width: 20px; height: 20px; }
+.draft-time-controls .draft-confirm { color: var(--on-primary); background: var(--primary); }
+.draft-time-controls button:active { transform: scale(.94); }
+@keyframes draft-appear { from { opacity: 0; transform: translateY(5px) scale(.98); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .course-range-picker, .course-draft-slot { animation: none; } }
 :root, :root[data-theme="light"] {
   --primary: #0b57d0; --primary-dark: #0842a0; --on-primary: #fff;
   --primary-container: #d3e3fd; --on-primary-container: #0842a0;

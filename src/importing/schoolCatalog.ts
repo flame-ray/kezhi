@@ -63,7 +63,11 @@ export function resolveSchoolLoginUrl(value: string): SchoolDefinition | undefin
     const known = schoolCatalog.find((item) => item.domain?.toLowerCase() === hostname);
     if (known) return { ...known, loginUrl: url.href };
 
-    const safeHost = hostname.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
+    const normalizedHost = hostname.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    // Keep existing short-host account IDs stable; native identifiers allow 64 characters.
+    let hash = 2166136261;
+    for (const character of hostname) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
+    const safeHost = normalizedHost.length <= 57 ? normalizedHost : normalizedHost.slice(0, 48) + "-" + (hash >>> 0).toString(16).padStart(8, "0");
     if (!safeHost) return undefined;
     return {
       id: `custom-${safeHost}`,

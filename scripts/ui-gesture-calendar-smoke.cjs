@@ -31,6 +31,9 @@ fs.mkdirSync(out, { recursive: true });
   });
   await test("stationary hold remains available after swiping", async () => {
     await pointer("touchStart"); await wait(900); await pointer("touchEnd"); await wait();
+    assert.equal(await page.locator(".course-range-picker").count(),1);
+    assert.equal(await page.locator(".course-editor-dialog").count(),0);
+    await page.getByRole("button",{name:"按选定时间添加课程",exact:true}).click();await wait();
     assert.equal(await page.locator(".course-editor-dialog").count(),1);
     await page.keyboard.press("Escape"); await wait();
   });

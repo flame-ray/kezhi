@@ -5,6 +5,8 @@ import android.app.Activity
 import android.app.Dialog
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.net.Uri
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
@@ -14,10 +16,15 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import android.webkit.CookieManager
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceError
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.net.http.SslError
@@ -79,6 +86,9 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
   private var confirmedCurrentUrl = ""
   private var confirmedUserAgent = ""
   private var confirmedPageSnapshot = ""
+  private var pageLoadFailed = false
+  private val approvedLoginHosts = mutableSetOf<String>()
+  private var pendingNavigation: android.app.AlertDialog? = null
 
   @Command
   fun open(invoke: Invoke) {
@@ -99,8 +109,12 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
       val accountChanged = currentAccountId.isNotEmpty() && currentAccountId != args.accountId
       currentSchoolId = args.schoolId
       currentAccountId = args.accountId
-      currentMode = if (args.mode == "selection") "selection" else "schedule"
+      currentMode = when (args.mode) { "selection" -> "selection"; "schedule-page" -> "schedule-page"; else -> "schedule" }
       allowedHost = args.allowedHost.lowercase(Locale.ROOT)
+      approvedLoginHosts.clear()
+      approvedLoginHosts.add(allowedHost)
+      pendingNavigation?.dismiss()
+      pendingNavigation = null
       confirmed = false
       confirmedCookieHeader = ""
       confirmedCurrentUrl = ""
@@ -126,7 +140,7 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
       val cookieHeader = if (confirmedCookieHeader.isNotEmpty()) confirmedCookieHeader else readCookies(currentUrl)
       val response = JSObject().apply {
         put("windowOpen", dialog?.isShowing == true || confirmed)
-        put("authenticated", confirmed && (currentMode == "selection" || cookieHeader.isNotEmpty()))
+        put("authenticated", confirmed && (currentMode == "selection" || currentMode == "schedule-page" || cookieHeader.isNotEmpty()))
         put("cookieHeader", cookieHeader)
         put("currentUrl", currentUrl)
         put("userAgent", confirmedUserAgent.ifEmpty { loginWebView?.settings?.userAgentString ?: "Kezhi Android" })
@@ -204,6 +218,7 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
       fun dp(value: Int) = (value * density).toInt()
 
       val nextDialog = Dialog(activity, android.R.style.Theme_Material_Light_NoActionBar)
+      val timetableMode = currentMode != "selection"
       val root = LinearLayout(activity).apply {
         orientation = LinearLayout.VERTICAL
         setBackgroundColor(Color.WHITE)
@@ -238,17 +253,43 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
       labels.addView(title)
       labels.addView(nextStatusText)
       val nextImportButton = Button(activity).apply {
-        text = if (currentMode == "selection") "已进入选课页，完成学习" else "登录完成，导入课表"
+        text = when (currentMode) { "selection" -> "已进入选课页，完成学习"; "schedule-page" -> "导入当前课表"; else -> "导入课表" }
         isAllCaps = false
         textSize = 14f
         setTextColor(Color.WHITE)
         backgroundTintList = ColorStateList.valueOf(Color.rgb(74, 94, 224))
-        visibility = View.GONE
+        visibility = if (timetableMode) View.VISIBLE else View.GONE
+        isEnabled = false
         elevation = dp(5).toFloat()
+        if (timetableMode) {
+          textSize = 16f
+          minHeight = dp(56)
+          setPadding(dp(20), dp(12), dp(20), dp(12))
+          backgroundTintList = null
+          val fill = GradientDrawable().apply {
+            cornerRadius = dp(20).toFloat()
+            setColor(ColorStateList(
+              arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
+              intArrayOf(Color.rgb(225, 228, 239), Color.rgb(74, 94, 224)),
+            ))
+          }
+          background = RippleDrawable(ColorStateList.valueOf(Color.argb(40, 255, 255, 255)), fill, null)
+          setTextColor(ColorStateList(
+            arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
+            intArrayOf(Color.rgb(113, 118, 132), Color.WHITE),
+          ))
+          elevation = 0f
+        }
       }
       toolbar.addView(closeButton, LinearLayout.LayoutParams(dp(72), dp(48)))
       toolbar.addView(labels, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-      toolbar.addView(nextImportButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)))
+      if (!timetableMode) toolbar.addView(nextImportButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)))
+      val bottomActions = LinearLayout(activity).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(16), dp(12), dp(16), dp(16))
+        setBackgroundColor(Color.rgb(246, 247, 251))
+        if (timetableMode) addView(nextImportButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+      }
 
       val webView = WebView(activity)
       webView.settings.apply {
@@ -272,17 +313,36 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
       webView.webViewClient = object : WebViewClient() {
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
           val next = request.url
-          return next.scheme != "https" || next.host?.lowercase(Locale.ROOT) != allowedHost
+          return handleNavigation(view, next)
         }
 
         @Suppress("DEPRECATION")
         override fun shouldOverrideUrlLoading(view: WebView, nextUrl: String): Boolean {
           val next = Uri.parse(nextUrl)
-          return next.scheme != "https" || next.host?.lowercase(Locale.ROOT) != allowedHost
+          return handleNavigation(view, next)
+        }
+
+        override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
+          super.onPageStarted(view, url, favicon)
+          pageLoadFailed = false
+          nextStatusText.text = "正在加载 ${Uri.parse(url).host.orEmpty()}"
+          nextImportButton.isEnabled = false
+        }
+
+        override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+          super.onReceivedError(view, request, error)
+          if (request.isForMainFrame) {
+            pageLoadFailed = true
+            nextStatusText.text = "加载失败（${error.errorCode}），请检查网址、网络或校园 VPN"
+            nextStatusText.setTextColor(Color.rgb(183, 69, 50))
+            nextImportButton.isEnabled = false
+          }
         }
 
         override fun onPageFinished(view: WebView, finishedUrl: String) {
           super.onPageFinished(view, finishedUrl)
+          if (pageLoadFailed) return
+          nextImportButton.isEnabled = true
           // 选课学习模式需要挂钩 fetch / XHR 才能捕获用户实际发出的提交请求。
           if (currentMode == "selection" && isLearnablePage(finishedUrl)) {
             view.evaluateJavascript(requestLoggerScript, null)
@@ -294,6 +354,7 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
 
         override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
           handler.cancel()
+          pageLoadFailed = true
           nextStatusText.text = "证书校验失败，已停止加载"
           nextStatusText.setTextColor(Color.rgb(183, 69, 50))
         }
@@ -303,7 +364,27 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
       nextImportButton.setOnClickListener {
         val currentUrl = webView.url ?: ""
         val cookieHeader = readCookies(currentUrl)
-        if (currentMode == "selection") {
+        if (currentMode == "schedule-page") {
+          if (pageLoadFailed || !isApprovedPage(Uri.parse(currentUrl))) return@setOnClickListener
+          nextImportButton.isEnabled = false
+          captureScheduleSnapshot(webView) { snapshot ->
+            nextImportButton.isEnabled = true
+            val parsed = try { JSONObject(snapshot) } catch (_: Exception) { null }
+            if ((parsed?.optJSONArray("tables")?.length() ?: 0) == 0) {
+              nextStatusText.text = parsed?.optJSONArray("warnings")?.optString(0)?.takeIf { it.isNotBlank() }
+                ?: "当前页没有可读取的课表，请登录并打开课表页后重试"
+              nextStatusText.setTextColor(Color.rgb(183, 69, 50))
+            } else {
+              confirmedCookieHeader = cookieHeader
+              confirmedCurrentUrl = currentUrl
+              confirmedUserAgent = webView.settings.userAgentString
+              confirmedPageSnapshot = snapshot
+              confirmed = true
+              CookieManager.getInstance().flush()
+              nextDialog.dismiss()
+            }
+          }
+        } else if (currentMode == "selection") {
           if (!isLearnablePage(currentUrl)) return@setOnClickListener
           capturePageSnapshot(webView) { snapshot ->
             confirmedCookieHeader = cookieHeader
@@ -316,12 +397,15 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
           }
         } else {
           if (!isLoggedIn(currentUrl, cookieHeader)) return@setOnClickListener
-          confirmedCookieHeader = cookieHeader
-          confirmedCurrentUrl = currentUrl
-          confirmedUserAgent = webView.settings.userAgentString
-          confirmed = true
-          CookieManager.getInstance().flush()
-          nextDialog.dismiss()
+          capturePageSnapshot(webView) { snapshot ->
+            confirmedCookieHeader = cookieHeader
+            confirmedCurrentUrl = currentUrl
+            confirmedUserAgent = webView.settings.userAgentString
+            confirmedPageSnapshot = snapshot
+            confirmed = true
+            CookieManager.getInstance().flush()
+            nextDialog.dismiss()
+          }
         }
       }
       nextDialog.setOnKeyListener { _, keyCode, event ->
@@ -341,9 +425,23 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
       }
       root.addView(toolbar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(64)))
       root.addView(webView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+      if (timetableMode) {
+        root.addView(bottomActions, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        // Reserve bars/cutouts and the keyboard in the layout, rather than covering the webpage.
+        nextDialog.window?.let { window ->
+          WindowCompat.setDecorFitsSystemWindows(window, false)
+          window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+          val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
+          view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+          WindowInsetsCompat.CONSUMED
+        }
+      }
       nextDialog.setContentView(root)
       nextDialog.show()
       nextDialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+      if (timetableMode) ViewCompat.requestApplyInsets(root)
 
       dialog = nextDialog
       loginWebView = webView
@@ -358,12 +456,14 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   private fun updateLoginState(url: String) {
-    val ready = if (currentMode == "selection") isLearnablePage(url) else isLoggedIn(url, readCookies(url))
-    importButton?.visibility = if (ready) View.VISIBLE else View.GONE
+    val ready = when (currentMode) { "selection" -> isLearnablePage(url); "schedule-page" -> isApprovedPage(Uri.parse(url)); else -> isLoggedIn(url, readCookies(url)) }
+    importButton?.visibility = if (currentMode != "selection" || ready) View.VISIBLE else View.GONE
+    importButton?.isEnabled = ready && !pageLoadFailed
     statusText?.apply {
       text = if (currentMode == "selection") {
         if (ready) "请完成一次课程查询，再点击右侧按钮" else "请在下方登录并进入选课页"
-      } else if (ready) "已检测到登录，可开始导入" else "请在下方完成登录"
+      } else if (currentMode == "schedule-page") "请登录并打开课表页，再点底部导入 · ${Uri.parse(url).host.orEmpty()}"
+      else if (ready) "已检测到登录，请点底部导入课表" else "请在下方完成登录，底部按钮将在登录后启用"
       setTextColor(if (ready) Color.rgb(42, 127, 105) else Color.rgb(113, 118, 132))
     }
   }
@@ -371,6 +471,41 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
   private fun isLearnablePage(url: String): Boolean {
     val uri = Uri.parse(url)
     return uri.scheme == "https" && uri.host?.lowercase(Locale.ROOT) == allowedHost
+  }
+
+  private fun isApprovedPage(uri: Uri): Boolean =
+    uri.scheme == "https" && uri.userInfo == null && uri.port in listOf(-1, 443) &&
+      uri.host?.lowercase(Locale.ROOT) in approvedLoginHosts
+
+  private fun handleNavigation(view: WebView, uri: Uri): Boolean {
+    if (currentMode != "schedule-page") return uri.scheme != "https" || uri.host?.lowercase(Locale.ROOT) != allowedHost
+    if (isApprovedPage(uri)) return false
+    val host = uri.host?.lowercase(Locale.ROOT)
+    if (uri.scheme != "https" || host.isNullOrBlank() || uri.userInfo != null || uri.port !in listOf(-1, 443)) {
+      statusText?.text = "已拦截不安全的跳转，请使用标准 HTTPS 登录网址"
+      return true
+    }
+    if (pendingNavigation?.isShowing == true) return true
+    pendingNavigation = android.app.AlertDialog.Builder(activity)
+      .setTitle("确认学校登录跳转")
+      .setMessage("学校页面希望跳转到：\n\n$host\n\n请核对这是学校的统一认证或教务域名。本次只允许这个域名，不会向它自动填充已保存的密码。")
+      .setNegativeButton("取消") { _, _ -> statusText?.text = "已取消跳转到 $host" }
+      .setPositiveButton("确认并继续") { _, _ ->
+        approvedLoginHosts.add(host)
+        view.loadUrl(uri.toString())
+      }
+      .create()
+    pendingNavigation?.show()
+    return true
+  }
+
+  private fun captureScheduleSnapshot(webView: WebView, complete: (String) -> Unit) {
+    val script = try { activity.assets.open("kezhi-schedule-snapshot.js").bufferedReader().use { it.readText() } }
+      catch (_: Exception) { complete(""); return }
+    webView.evaluateJavascript(script) { result ->
+      val decoded = try { JSONTokener(result).nextValue() as? String ?: "" } catch (_: Exception) { "" }
+      complete(if (decoded.toByteArray(Charsets.UTF_8).size <= 200_000) decoded else "")
+    }
   }
 
   private val requestLoggerScript = """
@@ -460,8 +595,12 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
           url: sameOrigin(entry.name), initiatorType: clean(entry.initiatorType, 30),
         })).filter((entry) => entry.url && ['fetch', 'xmlhttprequest', 'script', 'iframe'].includes(entry.initiatorType));
         const headings = Array.from(document.querySelectorAll('h1,h2,h3,[role="heading"],nav button')).slice(0, 80).map((node) => clean(node.innerText || node.textContent, 120)).filter(Boolean);
+        const tables = Array.from(document.querySelectorAll('table')).slice(0, 30).map((table) => {
+          const rows = Array.from(table.querySelectorAll('tr')).slice(0, 80).map((row) => Array.from(row.querySelectorAll('th,td')).slice(0, 30).map((cell) => clean(cell.innerText || cell.textContent, 500)));
+          return { caption: clean(table.querySelector('caption')?.textContent, 160), headers: rows[0] || [], rows };
+        }).filter((table) => table.rows.length > 1);
         const requests = (window.__kezhiRequests || []).slice();
-        return JSON.stringify({ pageUrl: location.href, title: clean(document.title, 160), headings, forms, links, resources, requests });
+        return JSON.stringify({ pageUrl: location.href, title: clean(document.title, 160), headings, forms, links, resources, tables, requests });
       })()
     """.trimIndent()
     webView.evaluateJavascript(script) { result ->
@@ -476,8 +615,8 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
     val leftLoginPage = !uri.path.orEmpty().lowercase(Locale.ROOT).contains("login")
     val hasSession = cookieHeader.split(';').any { part ->
       val name = part.substringBefore('=').trim().lowercase(Locale.ROOT)
-      name == "jsessionid" || name == "session" || name == "sessionid"
-    }
+      name == "jsessionid" || name == "session" || name == "sessionid" || name == "sid" || name == "token" || name == "authtoken" || name == "ticket"
+    } || (currentSchoolId != "ndnu" && cookieHeader.isNotBlank())
     return sameHost && leftLoginPage && hasSession
   }
 
@@ -495,11 +634,15 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   private fun autoFillSavedCredential(webView: WebView) {
+    val uri = Uri.parse(webView.url ?: "")
+    if (uri.scheme != "https" || uri.host?.lowercase(Locale.ROOT) != allowedHost || uri.port !in listOf(-1, 443)) return
     val credential = try { loadCredential(currentSchoolId, currentAccountId) } catch (_: Exception) { null } ?: return
     val username = JSONObject.quote(credential.first)
     val password = JSONObject.quote(credential.second)
+    val credentialHost = JSONObject.quote(allowedHost)
     val script = """
       (() => {
+        if (location.protocol !== 'https:' || location.hostname.toLowerCase() !== $credentialHost || location.port && location.port !== '443') return false;
         const username = $username;
         const password = $password;
         const setValue = (input, value) => {

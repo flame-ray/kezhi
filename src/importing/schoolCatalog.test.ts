@@ -18,4 +18,13 @@ describe("school login URL", () => {
     expect(resolveSchoolLoginUrl("https://student:secret@jw.example.edu.cn/login")).toBeUndefined();
     expect(resolveSchoolLoginUrl("not-a-school-url")).toBeUndefined();
   });
+
+  it("keeps long school IDs within native limits without merging similar hosts", () => {
+    const prefix = "a".repeat(50);
+    const first = resolveSchoolLoginUrl("https://" + prefix + ".one.example.edu.cn/login");
+    const second = resolveSchoolLoginUrl("https://" + prefix + ".two.example.edu.cn/login");
+    expect(first?.id.length).toBeLessThanOrEqual(64);
+    expect(first?.id).not.toEqual(second?.id);
+    expect(first?.id).toMatch(/^[a-z0-9-]+$/);
+  });
 });

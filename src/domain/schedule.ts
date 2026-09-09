@@ -57,6 +57,8 @@ export interface WeekView {
     day: DayOfWeek;
     date: Date;
     meetings: CourseMeeting[];
+    inactiveMeetings?: CourseMeeting[];
+    beforeTeaching?: boolean;
   }>;
 }
 

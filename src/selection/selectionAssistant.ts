@@ -17,6 +17,7 @@ export interface PortalResourceSignal {
   url: string;
   initiatorType: string;
 }
+export interface PortalTableSignal { caption?: string; headers: string[]; rows: string[][]; spans?: Array<{ row: number; column: number; rowSpan: number; colSpan: number }>; }
 
 /** 用户在选课页实际操作过的写请求，用来推断提交接口 */
 export interface PortalRequestSignal {
@@ -33,6 +34,8 @@ export interface PortalPageSnapshot {
   forms: PortalFormSignal[];
   links: PortalLinkSignal[];
   resources: PortalResourceSignal[];
+  tables?: PortalTableSignal[];
+  warnings?: string[];
   requests?: PortalRequestSignal[];
 }
 

@@ -13,7 +13,7 @@ import { Sidebar } from "./components/Sidebar";
 import { SyncReviewDialog } from "./components/SyncReviewDialog";
 import { TimetableDialog } from "./components/TimetableDialog";
 import { TodayAgenda } from "./components/TodayAgenda";
-import { WeekCalendar } from "./components/WeekCalendar";
+import { WeekCalendar, type WeekCalendarHandle } from "./components/WeekCalendar";
 import { defaultPresets } from "./data/demo";
 import { alignImportedWeeks, normalizeAcademicCalendar, resolveAcademicCalendar, suggestAcademicCalendar } from "./domain/academicCalendar";
 import { academicPositionForDate } from "./domain/dayAgenda";
@@ -105,6 +105,7 @@ export function App() {
   const [grabRun, setGrabRun] = useState<GrabRunState>(() => emptyGrabRun());
   const [scheduledReminderCount, setScheduledReminderCount] = useState(0);
   const importWizardRef = useRef<ImportWizardHandle>(null);
+  const weekCalendarRef = useRef<WeekCalendarHandle>(null);
   const appBackHandlerRef = useRef<() => void>(() => undefined);
   const capabilities = getRuntimeCapabilities();
 
@@ -125,6 +126,7 @@ export function App() {
     : "尚未选择学期";
 
   appBackHandlerRef.current = () => {
+    if (weekCalendarRef.current?.cancelOverlay()) return;
     const destination = resolveAppBackDestination({
       syncReviewOpen: Boolean(syncPlan),
       importOpen,
@@ -154,6 +156,7 @@ export function App() {
     else if (destination === "settings") setSettingsOpen(false);
     else if (destination === "course-details") setSelectedId(undefined);
     else if (destination === "secondary-page") setActivePage("课表");
+    else if (weekCalendarRef.current?.cancelDraft()) return;
     else if (toast) setToast(undefined);
     else setToast("已在课表首页，返回手势不会退出应用");
   };
@@ -824,11 +827,12 @@ export function App() {
                   canGoNext={week < MAX_ACADEMIC_WEEK}
                   onSelect={(meeting: CourseMeeting) => setSelectedId(meeting.id)}
                   onMove={handleMove}
-                  onCreate={(day, startPeriod) => openNewCourse({ day, startPeriod })}
+                  ref={weekCalendarRef}
+                  onCreate={(day, startPeriod, endPeriod) => openNewCourse({ day, startPeriod, endPeriod })}
                   onChangeWeek={(delta) => changeWeek(week + delta)}
                 />
                 {!hasCourses && <EmptySchedule onImport={() => setImportOpen(true)} onCreate={() => openNewCourse()} />}
-                <div className="calendar-hint"><span className="hint-dot" />左右滑动切换周次 · 按住空白格约 0.8 秒添加课程 · 拖动课程可调整时间</div>
+                <div className="calendar-hint"><span className="hint-dot" />左右滑动切周 · 长按空白格，用箭头调时间后点 ＋ · 淡色为非本周或未开课</div>
               </section>
               <CourseDetails meeting={selected} preset={preset} reminderSettings={reminderSettings} onClose={() => setSelectedId(undefined)} onEdit={() => selected && setEditingCourse(selected)} onReminderChange={(minutes) => selected && updateCourseReminder(selected.id, minutes)} onOpenReminderSettings={() => setSettingsOpen(true)} />
             </div>

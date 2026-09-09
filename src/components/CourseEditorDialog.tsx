@@ -7,6 +7,7 @@ import { DialogSurface } from "../ui/DialogSurface";
 export interface CourseDraftSlot {
   day: DayOfWeek;
   startPeriod: number;
+  endPeriod?: number;
 }
 
 interface CourseEditorDialogProps {
@@ -28,7 +29,7 @@ export function CourseEditorDialog({ meeting, initialSlot, maxPeriod, onSave, on
   const [location, setLocation] = useState(meeting?.location ?? "");
   const [day, setDay] = useState<DayOfWeek>(meeting?.day ?? initialSlot?.day ?? 1);
   const [startPeriod, setStartPeriod] = useState(meeting?.startPeriod ?? initialSlot?.startPeriod ?? 1);
-  const [endPeriod, setEndPeriod] = useState(meeting?.endPeriod ?? Math.min((initialSlot?.startPeriod ?? 1) + 1, maxPeriod));
+  const [endPeriod, setEndPeriod] = useState(meeting?.endPeriod ?? initialSlot?.endPeriod ?? Math.min((initialSlot?.startPeriod ?? 1) + 1, maxPeriod));
   const [weekRule, setWeekRule] = useState<CourseWeekRule>(initialRule);
   const [weekStart, setWeekStart] = useState(Math.min(...(meeting?.weeks.length ? meeting.weeks : [1])));
   const [weekEnd, setWeekEnd] = useState(Math.max(...(meeting?.weeks.length ? meeting.weeks : [18])));

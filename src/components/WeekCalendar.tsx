@@ -1,4 +1,6 @@
 import {
+  forwardRef,
+  useImperativeHandle,
   memo,
   useEffect,
   useLayoutEffect,
@@ -17,12 +19,17 @@ import {
 } from "../interaction/longPress";
 import { resistedWeekOffset, resolveWeekSwipe, type WeekDelta } from "../interaction/weekPaging";
 import { Icon } from "../ui/Icon";
-import { reducedMotion } from "../ui/Motion";
+import { Presence, reducedMotion } from "../ui/Motion";
+import { DialogSurface } from "../ui/DialogSurface";
+import { groupWeekCards, type WeekCardGroup } from "../domain/weekCardGroups";
 
 const dayNames = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 const shortDayNames = ["一", "二", "三", "四", "五", "六", "日"];
 const MIN_PAGE_TRANSITION_MS = 190;
 const MAX_PAGE_TRANSITION_MS = 310;
+
+export interface WeekCalendarHandle { cancelDraft: () => boolean; cancelOverlay: () => boolean; }
+interface DraftRange { day: DayOfWeek; startPeriod: number; endPeriod: number; }
 
 interface WeekCalendarProps {
   view: WeekView;
@@ -34,11 +41,11 @@ interface WeekCalendarProps {
   canGoNext: boolean;
   onSelect: (meeting: CourseMeeting) => void;
   onMove: (id: string, day: DayOfWeek, period: number) => void;
-  onCreate: (day: DayOfWeek, period: number) => void;
+  onCreate: (day: DayOfWeek, period: number, endPeriod?: number) => void;
   onChangeWeek: (delta: -1 | 1) => void;
 }
 
-export function WeekCalendar({
+export const WeekCalendar = forwardRef<WeekCalendarHandle, WeekCalendarProps>(function WeekCalendar({
   view,
   previousView,
   nextView,
@@ -50,7 +57,21 @@ export function WeekCalendar({
   onMove,
   onCreate,
   onChangeWeek,
-}: WeekCalendarProps) {
+}: WeekCalendarProps, ref) {
+  const [draft, setDraft] = useState<DraftRange>();
+  const [overlap, setOverlap] = useState<WeekCardGroup>();
+  useImperativeHandle(ref, () => ({
+    cancelDraft: () => { if (!draft) return false; setDraft(undefined); return true; },
+    cancelOverlay: () => { if (!overlap) return false; setOverlap(undefined); return true; },
+  }), [draft, overlap]);
+  useEffect(() => { setOverlap(undefined); }, [view.week]);
+  useEffect(() => { setDraft(undefined); }, [view.week, preset]);
+  useEffect(() => {
+    if (!draft) return;
+    const dismiss = (event: KeyboardEvent) => { if (event.key === "Escape") { setDraft(undefined); event.preventDefault(); } };
+    window.addEventListener("keydown", dismiss);
+    return () => window.removeEventListener("keydown", dismiss);
+  }, [draft]);
   const viewportRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const previousPageRef = useRef<HTMLDivElement>(null);
@@ -132,7 +153,8 @@ export function WeekCalendar({
 
   const beginSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!event.isPrimary || event.pointerType === "mouse" || transitioningRef.current) return;
-    if ((event.target as HTMLElement).closest(".course-card")) return;
+    if ((event.target as HTMLElement).closest(".course-card, .course-range-picker, .course-draft-slot")) return;
+    setDraft(undefined);
     const scrollTop = activePageRef.current?.scrollTop ?? 0;
     if (previousPageRef.current) previousPageRef.current.scrollTop = scrollTop;
     if (nextPageRef.current) nextPageRef.current.scrollTop = scrollTop;
@@ -255,15 +277,47 @@ export function WeekCalendar({
             onSelect={onSelect}
             onMove={onMove}
             onCreate={onCreate}
+            draft={draft}
+            onDraft={setDraft}
+            onShowOverlap={setOverlap}
           />
         </div>
         <div ref={nextPageRef} className="calendar-scroll week-page" aria-hidden="true">
           <CalendarGrid view={nextView} preset={preset} interactive={false} />
         </div>
       </div>
+      {draft && <div className="course-range-picker" role="group" aria-label="调整课程时间">
+        <div className="draft-time-caption" aria-live="polite">{dayNames[draft.day - 1]} · 第 {draft.startPeriod}–{draft.endPeriod} 节
+          <small>{preset.periods.find(p => p.index === draft.startPeriod)?.start}–{preset.periods.find(p => p.index === draft.endPeriod)?.end}</small>
+        </div>
+        <div className="draft-time-controls">
+          <span>开始</span>
+          <button aria-label="开始提前一节" disabled={draft.startPeriod <= 1} onClick={() => setDraft({ ...draft, startPeriod: draft.startPeriod - 1 })}>↑</button>
+          <button aria-label="开始推后一节" disabled={draft.startPeriod >= draft.endPeriod} onClick={() => setDraft({ ...draft, startPeriod: draft.startPeriod + 1 })}>↓</button>
+          <span>结束</span>
+          <button aria-label="结束提前一节" disabled={draft.endPeriod <= draft.startPeriod} onClick={() => setDraft({ ...draft, endPeriod: draft.endPeriod - 1 })}>↑</button>
+          <button aria-label="结束推后一节" disabled={draft.endPeriod >= preset.periods.length} onClick={() => setDraft({ ...draft, endPeriod: draft.endPeriod + 1 })}>↓</button>
+          <button aria-label="取消时间选择" onClick={() => setDraft(undefined)}><Icon name="close" /></button>
+          <button className="draft-confirm" aria-label="按选定时间添加课程" onClick={() => { onCreate(draft.day, draft.startPeriod, draft.endPeriod); setDraft(undefined); }}><Icon name="plus" /></button>
+        </div>
+      </div>}
+      <Presence>{overlap && <DialogSurface className="overlap-courses-dialog" labelledBy="overlap-courses-title" onClose={() => setOverlap(undefined)}>
+        <header className="dialog-header">
+          <div><span className="eyebrow">{dayNames[overlap.day - 1]} · 第 {overlap.startPeriod}–{overlap.endPeriod} 节</span><h2 id="overlap-courses-title">此时段共 {overlap.entries.length} 门课程</h2><p className="dialog-description">本周课程排在前面，点击查看课程详情</p></div>
+          <button className="icon-button" aria-label="关闭课程列表" onClick={() => setOverlap(undefined)}><Icon name="close" /></button>
+        </header>
+        <div className="overlap-course-list">
+          {overlap.entries.map(({ meeting, inactive, beforeTeaching }) => <button key={meeting.id} className={`overlap-course-item color-${meeting.color}`} onClick={() => { setOverlap(undefined); onSelect(meeting); }}>
+            <strong>{meeting.title}</strong>
+            <span>第 {meeting.startPeriod}–{meeting.endPeriod} 节 · {meeting.location}</span>
+            <span>{meeting.teacher}</span>
+            <small>{inactive ? "非本周" : beforeTeaching ? "本周 · 未开课" : "本周上课"}{alternatingWeekLabel(meeting.weeks) ? ` · ${alternatingWeekLabel(meeting.weeks)}` : ""} · 第 {meeting.weeks.join("、")} 周</small>
+          </button>)}
+        </div>
+      </DialogSurface>}</Presence>
     </div>
   );
-}
+});
 
 interface CalendarGridProps {
   view: WeekView;
@@ -272,11 +326,16 @@ interface CalendarGridProps {
   interactive: boolean;
   onSelect?: (meeting: CourseMeeting) => void;
   onMove?: (id: string, day: DayOfWeek, period: number) => void;
-  onCreate?: (day: DayOfWeek, period: number) => void;
+  onCreate?: (day: DayOfWeek, period: number, endPeriod?: number) => void;
+  draft?: DraftRange;
+  onDraft?: (draft: DraftRange | undefined) => void;
+  onShowOverlap?: (group: WeekCardGroup) => void;
 }
 
-const CalendarGrid = memo(function CalendarGrid({ view, preset, selectedId, interactive, onSelect, onMove, onCreate }: CalendarGridProps) {
-  const meetings = view.days.flatMap((day) => day.meetings);
+const CalendarGrid = memo(function CalendarGrid({ view, preset, selectedId, interactive, onSelect, onMove, onCreate, draft, onDraft, onShowOverlap }: CalendarGridProps) {
+  const draftClickArmed = useRef(false);
+  useEffect(() => { draftClickArmed.current = false; }, [draft]);
+  const groups = groupWeekCards(view);
   const today = new Date();
   const rowCount = preset.periods.length;
 
@@ -329,43 +388,63 @@ const CalendarGrid = memo(function CalendarGrid({ view, preset, selectedId, inte
               style={style}
               key={`${day}-${period.index}`}
               label={`${dayNames[day - 1]} ${dateLabel(date)} 第 ${period.index} 节`}
-              onCreate={() => onCreate?.(day, period.index)}
+              onCreate={() => onDraft?.({ day, startPeriod: period.index, endPeriod: period.index })}
               onMove={(id) => onMove?.(id, day, period.index)}
             />
           );
         }),
       )}
 
-      {meetings.map((meeting) => {
-        const span = meeting.endPeriod - meeting.startPeriod + 1;
+      {groups.map((group) => {
+        const { meeting, inactive, beforeTeaching } = group.entries[0];
+        const multiple = group.entries.length > 1;
+        const span = group.endPeriod - group.startPeriod + 1;
         const weekPattern = alternatingWeekLabel(meeting.weeks);
         return (
           <button
             type="button"
-            draggable={interactive}
+            draggable={interactive && !multiple}
+            aria-haspopup={multiple ? "dialog" : undefined}
             tabIndex={interactive ? 0 : -1}
-            className={`course-card color-${meeting.color} ${selectedId === meeting.id ? "selected" : ""} ${meeting.status === "changed" ? "changed" : ""}`}
+            className={`course-card color-${meeting.color} ${selectedId === meeting.id ? "selected" : ""} ${meeting.status === "changed" ? "changed" : ""} ${inactive ? "not-this-week" : ""} ${beforeTeaching ? "before-teaching" : ""}`}
             style={{
               gridColumn: meeting.day + 1,
-              gridRow: `${meeting.startPeriod + 1} / span ${span}`,
+              gridRow: `${group.startPeriod + 1} / span ${span}`,
             }}
             key={meeting.id}
-            onClick={() => interactive && onSelect?.(meeting)}
+            onClick={() => { if (!interactive) return; if (multiple) onShowOverlap?.(group); else onSelect?.(meeting); }}
             onDragStart={(event) => {
-              if (!interactive) return;
+              if (!interactive || multiple) return;
               event.dataTransfer.effectAllowed = "move";
               event.dataTransfer.setData("text/course-id", meeting.id);
             }}
           >
+            {multiple && <span className="course-stack-count">共 {group.entries.length} 门 ›</span>}
             <span className="course-title">{meeting.title}</span>
+            {multiple && (meeting.startPeriod !== group.startPeriod || meeting.endPeriod !== group.endPeriod) && <span className="course-stack-period">第{meeting.startPeriod}–{meeting.endPeriod}节</span>}
             <span className="course-meta"><Icon name="location" />{meeting.location}</span>
             {span > 1 && <span className="course-teacher">{meeting.teacher}</span>}
             {meeting.note && <span className="course-badge">{meeting.note}</span>}
-            {weekPattern && <span className="course-week-pattern">{weekPattern}</span>}
+            {(weekPattern || inactive || beforeTeaching) && <span className="course-week-pattern">{[weekPattern, inactive ? "非本周" : beforeTeaching ? "未开课" : ""].filter(Boolean).join(" · ")}</span>}
             {meeting.status === "changed" && <span className="change-dot" title="本地已修改" />}
           </button>
         );
       })}
+      {draft && interactive && <button
+        className="course-draft-slot"
+        style={{ gridColumn: draft.day + 1, gridRow: `${draft.startPeriod + 1} / span ${draft.endPeriod - draft.startPeriod + 1}` }}
+        aria-label={`添加周${shortDayNames[draft.day - 1]}第${draft.startPeriod}至${draft.endPeriod}节课程`}
+        onPointerDown={() => { draftClickArmed.current = true; }}
+        onPointerCancel={() => { draftClickArmed.current = false; }}
+        onClick={(event) => {
+          // The release of the original long press may click the new overlay.
+          // Only a fresh tap or a keyboard activation confirms the time range.
+          if (!draftClickArmed.current && (event.detail !== 0 || (event.nativeEvent as PointerEvent).pointerType)) return;
+          draftClickArmed.current = false;
+          onCreate?.(draft.day, draft.startPeriod, draft.endPeriod);
+          onDraft?.(undefined);
+        }}
+      ><Icon name="plus" /><small>{draft.startPeriod}–{draft.endPeriod}节</small></button>}
     </div>
   );
 });

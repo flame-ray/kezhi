@@ -23,8 +23,12 @@ export function buildWeekView(
       return {
         day,
         date,
+        beforeTeaching: !isTeachingDate(calendar, date),
+        inactiveMeetings: courses
+          .filter((course) => course.day === day && !course.weeks.includes(week))
+          .sort((a, b) => a.startPeriod - b.startPeriod),
         meetings: courses
-          .filter((course) => isTeachingDate(calendar, date) && course.day === day && course.weeks.includes(week))
+          .filter((course) => course.day === day && course.weeks.includes(week))
           .sort((a, b) => a.startPeriod - b.startPeriod),
       };
     }),

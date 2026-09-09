@@ -2,6 +2,8 @@
 
 当前版本 **0.4.5**：新增 Android 手机系统日历导入、底栏弹性滑动选中背景，修复翻周与长按添加冲突。入口、限制与测试见 [0.4.5 更新说明](docs/RELEASE_0.4.5.md)。安装包已发布到 [GitHub Releases](https://github.com/flame-ray/kezhi/releases/tag/v0.4.5)。
 
+主分支还包含尚未发布为新 Release 的课表重影、长按时间选择、通用网页登录和底部导入按钮修复，详见 [待发布更新](docs/UNRELEASED.md)。现有 v0.4.5 Release 安装包不包含这些后续修复。
+
 课织是一个面向 Windows 10/11 与 Android 的本地优先大学课表应用。0.4.4 版本统一了 Material 风格的亮暗主题、9 类弹窗与底部面板、日期跟手滑动和按钮反馈。支持弹窗退场、下拉收起、嵌套焦点恢复及系统减少动态效果。账号档案保存在本机 SQLite，密码独立存入 Windows Credential Manager 或由 Android Keystore 保护的密文。应用继续提供通用选课助手、成绩中心、周课表、每日安排、ICS 导入导出、单双周、多套作息与系统提醒。详见 [0.4.4 界面与动效验收](docs/UI_MOTION_AUDIT_0.4.4.md)。
 
 首次启动默认是空课表，不附带任何虚构课程、学生或学校信息。用户完成教务导入或手动添加课程后才会创建课表数据。
@@ -28,7 +30,7 @@ bun run android:dev
 bun run android:build
 ```
 
-Windows 上 Tauri 打包需要创建符号链接，因此必须在“设置 → 系统 → 开发者选项”中由用户明确开启开发人员模式。账号、课程和作息只保存在 Android 应用私有 SQLite 中；宁德师范学院已支持应用内官方网页登录，登录后点击顶部“登录完成，导入课表”即可读取课表。用户选择“自动保存并填充”时，密码仅以 Android Keystore 保护的密文保存在应用私有目录。
+Windows 上 Tauri 打包需要创建符号链接，因此必须在“设置 → 系统 → 开发者选项”中由用户明确开启开发人员模式。账号、课程和作息只保存在 Android 应用私有 SQLite 中；主分支的 Android 课表登录页使用底部大号导入按钮，具体模式与适配限制见待发布更新。用户选择“自动保存并填充”时，密码仅以 Android Keystore 保护的密文保存在应用私有目录。
 
 ### 开发模式
 
@@ -146,7 +148,7 @@ bun build src/main.tsx --outdir dist-bun --target browser
 
 - 用户可选择在课织中输入密码并保存；Windows 使用 Credential Manager，Android 使用 Keystore AES-GCM，密码不进入 SQLite、JSON 备份、日志或 Git。
 - React 界面只能保存、查询状态和删除凭据，不能读回明文；原生层只向经过域名校验的学校官方登录页填充，且不会点击登录按钮。
-- 原生层固定校验 HTTPS 域名，不接受前端传入任意网址。
+- 自定义学校入口仅接受无内嵌账号密码的 HTTPS 网址。Android 通用课表模式跳转到新认证域名时，需要用户逐个核对确认；已保存密码只在原学校域名填充。Windows 和选课请求仍保留原有同域限制。
 - Cookie 值只在 Rust 原生层用于本次学校请求，不返回 React 界面、不写入日志。
 - 正方接口响应中的学生资料块会被丢弃，仅课程行进入本地解析器。
 - 不提供云同步，课程、账号备注和系统保险库凭据仅留在当前设备。

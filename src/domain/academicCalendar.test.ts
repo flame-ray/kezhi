@@ -68,4 +68,29 @@ describe("academic calendar", () => {
     });
     expect(resolveAcademicCalendar(settings).teachingStartsOn.getDate()).toBe(17);
   });
+
+  it("uses the matching term suggestion when a snapshot has no saved dates", () => {
+    expect(normalizeAcademicCalendar({
+      schoolId: "ndnu",
+      academicYear: 2026,
+      semester: 2,
+      studentGrade: 2,
+    })).toEqual({
+      studentGrade: 2,
+      termStartsOn: "2027-02-22",
+      teachingStartsOn: "2027-02-23",
+    });
+  });
+
+  it("does not let an invalid saved date force a different academic year", () => {
+    const suggestion = suggestAcademicCalendar({ academicYear: 2027, semester: 1, studentGrade: 3 });
+    const settings = normalizeAcademicCalendar({
+      academicYear: 2027,
+      semester: 1,
+      studentGrade: 3,
+      termStartsOn: "not-a-date",
+    });
+    expect(settings.termStartsOn).toBe(suggestion.termStartsOn);
+    expect(settings.teachingStartsOn).toBe(suggestion.teachingStartsOn);
+  });
 });

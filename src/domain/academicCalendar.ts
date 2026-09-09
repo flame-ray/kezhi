@@ -1,5 +1,6 @@
 import type { CourseMeeting, ScheduleSnapshot, StudentGrade } from "./schedule";
 import {
+  isDateKey,
   normalizeTeachingStartKey,
   normalizeTermStartKey,
   resolveTeachingStartDate,
@@ -109,9 +110,11 @@ export function normalizeAcademicCalendar(snapshot: Pick<
 >): AcademicCalendarSettings {
   const academicYear = snapshot.academicYear ?? 2026;
   const semester = snapshot.semester ?? 1;
-  const normalizedTerm = normalizeTermStartKey(snapshot.termStartsOn);
+  const explicitTerm = isDateKey(snapshot.termStartsOn)
+    ? normalizeTermStartKey(snapshot.termStartsOn)
+    : undefined;
   const known = snapshot.schoolId === "ndnu" ? NDNU_CALENDARS[`${academicYear}-${semester}`] : undefined;
-  const legacyGrade = known && normalizedTerm === known.freshmanWeekOne ? 1 : undefined;
+  const legacyGrade = known && explicitTerm === known.freshmanWeekOne ? 1 : undefined;
   const studentGrade = normalizeStudentGrade(snapshot.studentGrade) ?? legacyGrade ?? 1;
   const suggestion = suggestAcademicCalendar({
     schoolId: snapshot.schoolId,
@@ -119,13 +122,14 @@ export function normalizeAcademicCalendar(snapshot: Pick<
     semester,
     studentGrade,
   });
-  const suggestedTeaching = suggestion.termStartsOn === normalizedTerm
+  const termStartsOn = explicitTerm ?? suggestion.termStartsOn;
+  const suggestedTeaching = suggestion.termStartsOn === termStartsOn
     ? suggestion.teachingStartsOn
-    : normalizedTerm;
+    : termStartsOn;
   return {
     studentGrade,
-    termStartsOn: normalizedTerm,
-    teachingStartsOn: normalizeTeachingStartKey(snapshot.teachingStartsOn, normalizedTerm, suggestedTeaching),
+    termStartsOn,
+    teachingStartsOn: normalizeTeachingStartKey(snapshot.teachingStartsOn, termStartsOn, suggestedTeaching),
   };
 }
 

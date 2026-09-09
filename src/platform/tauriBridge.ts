@@ -44,6 +44,20 @@ export interface PortalResourcePayload {
   sourceUrl: string;
 }
 
+export interface LoginCredentialKey {
+  schoolId: string;
+  accountId: string;
+}
+
+export interface SaveLoginCredentialRequest extends LoginCredentialKey {
+  username: string;
+  password: string;
+}
+
+export interface LoginCredentialStatus {
+  saved: boolean;
+}
+
 export function openSchoolLogin(request: SchoolLoginRequest): Promise<LoginWindowInfo> {
   return invoke<LoginWindowInfo>("open_school_login", { request });
 }
@@ -66,6 +80,38 @@ export function fetchSchoolSchedule(request: ScheduleFetchRequest): Promise<Sche
 
 export function fetchPortalResource(request: PortalResourceRequest): Promise<PortalResourcePayload> {
   return invoke<PortalResourcePayload>("fetch_portal_resource", { request });
+}
+
+export interface PortalSubmitRequest extends SchoolLoginRequest {
+  endpointUrl: string;
+  method: "POST" | "GET";
+  body?: string;
+  contentType?: string;
+}
+
+export interface PortalSubmitPayload {
+  body: string;
+  contentType: string;
+  status: number;
+  sourceUrl: string;
+  elapsedMs: number;
+}
+
+export interface PortalClockPayload {
+  serverDate?: string;
+  localSentAt: number;
+  localReceivedAt: number;
+  status: number;
+}
+
+/** 发起一次真实的选课提交，只在用户自己学习并确认过的同域地址上生效 */
+export function submitPortalRequest(request: PortalSubmitRequest): Promise<PortalSubmitPayload> {
+  return invoke<PortalSubmitPayload>("submit_portal_request", { request });
+}
+
+/** 读取学校服务器时间，用于校准本机时钟 */
+export function probePortalClock(request: PortalResourceRequest): Promise<PortalClockPayload> {
+  return invoke<PortalClockPayload>("probe_portal_clock", { request });
 }
 
 export async function readPortalPageSnapshot(request: SchoolLoginRequest): Promise<PortalPageSnapshot> {
@@ -97,4 +143,16 @@ export function loadStoredAccounts(): Promise<LocalAccountProfile[]> {
 
 export function saveStoredAccount(account: LocalAccountProfile): Promise<void> {
   return invoke<void>("save_local_account", { account });
+}
+
+export function saveLoginCredential(request: SaveLoginCredentialRequest): Promise<void> {
+  return invoke<void>("save_login_credential", { request });
+}
+
+export function getLoginCredentialStatus(request: LoginCredentialKey): Promise<LoginCredentialStatus> {
+  return invoke<LoginCredentialStatus>("login_credential_status", { request });
+}
+
+export function deleteLoginCredential(request: LoginCredentialKey): Promise<void> {
+  return invoke<void>("delete_login_credential", { request });
 }

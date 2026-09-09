@@ -14,7 +14,7 @@ export function EmptySchedule({ onImport, onCreate }: EmptyScheduleProps) {
       </div>
       <span className="empty-eyebrow">从这里开始</span>
       <h2>导入你的第一张课表</h2>
-      <p>登录学校官方教务系统，课织会读取课程并在导入前让你检查结果。密码不会输入到课织自己的表单中。</p>
+      <p>连接学校教务系统，或导入日历文件。课程与账号保存在本机，导入前可以检查每一项。</p>
       <div className="empty-actions">
         <button className="primary-button" onClick={onImport}><Icon name="school" />导入教务课表</button>
         <button className="soft-button" onClick={onCreate}><Icon name="plus" />手动添加课程</button>

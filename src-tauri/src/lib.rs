@@ -1,9 +1,14 @@
 #[cfg(target_os = "android")]
 mod android_login;
+mod credential_vault;
+mod phone_calendar;
 mod database;
 
 #[cfg(target_os = "android")]
-use android_login::{AndroidSchoolLogin, OpenRequest as AndroidLoginOpenRequest};
+use android_login::{
+    AndroidSchoolLogin, CredentialKeyRequest as AndroidCredentialKeyRequest,
+    OpenRequest as AndroidLoginOpenRequest, SaveCredentialRequest as AndroidSaveCredentialRequest,
+};
 use database::{LocalAccountProfile, ScheduleSnapshot as StoredScheduleSnapshot, ScheduleStore};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -76,6 +81,43 @@ struct PortalResourcePayload {
     source_url: String,
 }
 
+/// 全自动抢课的提交请求。只允许同域 HTTPS，且必须来自用户学习过的选课页面。
+#[derive(Clone, Deserialize)]
+#[cfg_attr(target_os = "ios", allow(dead_code))]
+#[serde(rename_all = "camelCase")]
+struct PortalSubmitRequest {
+    school_id: String,
+    account_id: String,
+    login_url: Option<String>,
+    purpose: Option<String>,
+    endpoint_url: String,
+    method: String,
+    #[serde(default)]
+    body: Option<String>,
+    #[serde(default)]
+    content_type: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PortalSubmitPayload {
+    body: String,
+    content_type: String,
+    status: u16,
+    source_url: String,
+    elapsed_ms: u64,
+}
+
+/// 校时探针：把学校服务器返回的 `Date` 头和本机收发时刻一起交回前端。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PortalClockPayload {
+    server_date: Option<String>,
+    local_sent_at: i64,
+    local_received_at: i64,
+    status: u16,
+}
+
 #[tauri::command]
 fn load_schedule_snapshot(
     store: tauri::State<'_, ScheduleStore>,
@@ -106,6 +148,121 @@ fn save_local_account(
     store.save_account(&account)
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CredentialKeyRequest {
+    school_id: String,
+    account_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveLoginCredentialRequest {
+    school_id: String,
+    account_id: String,
+    username: String,
+    password: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LoginCredentialStatus {
+    saved: bool,
+}
+
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn save_login_credential(request: SaveLoginCredentialRequest) -> Result<(), String> {
+    let key = credential_vault::validate_key(&request.school_id, &request.account_id)?;
+    let credential = credential_vault::validate_credential(&request.username, &request.password)?;
+    credential_vault::save(&key, &credential)
+}
+
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn login_credential_status(request: CredentialKeyRequest) -> Result<LoginCredentialStatus, String> {
+    let key = credential_vault::validate_key(&request.school_id, &request.account_id)?;
+    Ok(LoginCredentialStatus {
+        saved: credential_vault::load(&key)?.is_some(),
+    })
+}
+
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn delete_login_credential(request: CredentialKeyRequest) -> Result<(), String> {
+    let key = credential_vault::validate_key(&request.school_id, &request.account_id)?;
+    credential_vault::delete(&key)
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn save_login_credential(
+    app: tauri::AppHandle,
+    request: SaveLoginCredentialRequest,
+) -> Result<(), String> {
+    credential_vault::validate_key(&request.school_id, &request.account_id)?;
+    let credential = credential_vault::validate_credential(&request.username, &request.password)?;
+    app.state::<AndroidSchoolLogin<tauri::Wry>>()
+        .save_credential(AndroidSaveCredentialRequest {
+            school_id: &request.school_id,
+            account_id: &request.account_id,
+            username: &credential.username,
+            password: &credential.password,
+        })
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn login_credential_status(
+    app: tauri::AppHandle,
+    request: CredentialKeyRequest,
+) -> Result<LoginCredentialStatus, String> {
+    credential_vault::validate_key(&request.school_id, &request.account_id)?;
+    let status = app
+        .state::<AndroidSchoolLogin<tauri::Wry>>()
+        .credential_status(AndroidCredentialKeyRequest {
+            school_id: &request.school_id,
+            account_id: &request.account_id,
+        })?;
+    Ok(LoginCredentialStatus {
+        saved: status.saved,
+    })
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn delete_login_credential(
+    app: tauri::AppHandle,
+    request: CredentialKeyRequest,
+) -> Result<(), String> {
+    credential_vault::validate_key(&request.school_id, &request.account_id)?;
+    app.state::<AndroidSchoolLogin<tauri::Wry>>()
+        .delete_credential(AndroidCredentialKeyRequest {
+            school_id: &request.school_id,
+            account_id: &request.account_id,
+        })
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "android")))]
+#[tauri::command]
+fn save_login_credential(_request: SaveLoginCredentialRequest) -> Result<(), String> {
+    Err("当前平台暂不支持系统密码保险库".into())
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "android")))]
+#[tauri::command]
+fn login_credential_status(
+    _request: CredentialKeyRequest,
+) -> Result<LoginCredentialStatus, String> {
+    Ok(LoginCredentialStatus { saved: false })
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "android")))]
+#[tauri::command]
+fn delete_login_credential(_request: CredentialKeyRequest) -> Result<(), String> {
+    Ok(())
+}
+
 struct SchoolSite {
     id: &'static str,
     name: &'static str,
@@ -114,6 +271,7 @@ struct SchoolSite {
 }
 
 #[derive(Clone)]
+#[cfg_attr(mobile, allow(dead_code))]
 struct LoginSite {
     id: String,
     name: String,
@@ -249,11 +407,20 @@ fn create_login_window(
         checked_login_site_url(&site)?
     };
     let label = window_label(&request)?;
+    let saved_credential = credential_vault::validate_key(&request.school_id, &request.account_id)
+        .and_then(|key| credential_vault::load(&key))
+        .ok()
+        .flatten();
 
     if let Some(window) = app.get_webview_window(&label) {
         if interactive {
             window.show().map_err(|error| error.to_string())?;
             window.set_focus().map_err(|error| error.to_string())?;
+            if let Some(credential) = &saved_credential {
+                if let Ok(script) = credential_vault::autofill_script(credential) {
+                    let _ = window.eval(script);
+                }
+            }
         }
         return Ok(LoginWindowInfo {
             window_label: label,
@@ -272,7 +439,7 @@ fn create_login_window(
         .join(account_id);
     std::fs::create_dir_all(&session_directory).map_err(|error| error.to_string())?;
 
-    WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
+    let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
         .title(format!(
             "课织 · {}{}",
             site.name,
@@ -286,12 +453,15 @@ fn create_login_window(
         .min_inner_size(860.0, 620.0)
         .center()
         .visible(interactive)
+        .initialization_script(PORTAL_LEARNER_SCRIPT)
         .data_directory(session_directory)
         .on_navigation(move |next_url| {
             next_url.scheme() == "https" && next_url.host_str() == Some(allowed_host.as_str())
-        })
-        .build()
-        .map_err(|error| error.to_string())?;
+        });
+    if let Some(credential) = &saved_credential {
+        builder = builder.initialization_script(credential_vault::autofill_script(credential)?);
+    }
+    builder.build().map_err(|error| error.to_string())?;
 
     Ok(LoginWindowInfo {
         window_label: label,
@@ -335,13 +505,126 @@ async fn school_login_status(
         && !current_url.path().to_ascii_lowercase().contains("login");
     let authenticated = has_session_cookie && left_login_page;
 
+    // 选课学习模式需要读取页面结构和用户实际操作过的写请求，
+    // 否则前端无从推断提交接口，用户只能自己去浏览器里抓包。
+    let page_snapshot = if request.purpose.as_deref() == Some("selection") {
+        collect_portal_snapshot(&window)
+    } else {
+        None
+    };
+
     Ok(LoginStatus {
         window_open: true,
         authenticated,
         session_cookie_count: cookies.len(),
         current_url: Some(current_url.to_string()),
-        page_snapshot: None,
+        page_snapshot,
     })
+}
+
+/// 在每个文档创建时注入采集脚本：记录页面结构，并挂钩 fetch / XHR
+/// 捕获写请求，供「学习选课入口」推断提交接口。
+#[cfg(desktop)]
+const PORTAL_LEARNER_SCRIPT: &str = r#"
+(() => {
+  const log = [];
+  const clean = (value, max) => String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, max || 120);
+  const sameOrigin = (value) => {
+    try {
+      const url = new URL(value || location.href, location.href);
+      return url.protocol === 'https:' && url.origin === location.origin ? url.href : '';
+    } catch (_) { return ''; }
+  };
+  const record = (url, method, body, contentType) => {
+    const safe = sameOrigin(url);
+    const rawBody = String(body == null ? '' : body);
+    const path = (() => { try { return new URL(safe).pathname.toLowerCase(); } catch (_) { return ''; } })();
+    const hasPasswordField = Boolean(document.querySelector('input[type="password"]'));
+    const looksLikeLogin = /(login|signin|slogin|authenticate|passport)/.test(path);
+    const containsSecret = /(^|[&{,\s"'])(password|passwd|pwd|userpassword|mm)(["']?\s*[:=])/i.test(rawBody);
+    if (!safe || log.length >= 80 || hasPasswordField || looksLikeLogin || containsSecret) return;
+    log.push({ url: safe, method: clean(method || 'GET', 10).toUpperCase(), body: rawBody.slice(0, 4000), contentType: clean(contentType || '', 160) });
+  };
+  const originalFetch = window.fetch;
+  if (typeof originalFetch === 'function') {
+    window.fetch = function (input, init) {
+      try {
+        const options = init || {};
+        const method = clean(options.method || (input && input.method) || 'GET', 10).toUpperCase();
+        // 只留写请求：查询类 GET 太多，会淹没真正有用的提交。
+        if (method !== 'GET') {
+          const headers = options.headers || {};
+          const contentType = headers['Content-Type'] || headers['content-type'] || '';
+          const rawUrl = typeof input === 'string' ? input : (input && input.url) || '';
+          record(rawUrl, method, typeof options.body === 'string' ? options.body : '', contentType);
+        }
+      } catch (_) {}
+      return originalFetch.apply(this, arguments);
+    };
+  }
+  const OriginalXHR = window.XMLHttpRequest;
+  if (typeof OriginalXHR === 'function' && !OriginalXHR.prototype.__kezhiHooked) {
+    const open = OriginalXHR.prototype.open;
+    const send = OriginalXHR.prototype.send;
+    const setHeader = OriginalXHR.prototype.setRequestHeader;
+    OriginalXHR.prototype.__kezhiHooked = true;
+    OriginalXHR.prototype.open = function (method, url) {
+      this.__kezhiMethod = method;
+      this.__kezhiUrl = url;
+      return open.apply(this, arguments);
+    };
+    OriginalXHR.prototype.setRequestHeader = function (name, value) {
+      if (String(name).toLowerCase() === 'content-type') this.__kezhiContentType = value;
+      return setHeader.apply(this, arguments);
+    };
+    OriginalXHR.prototype.send = function (body) {
+      try {
+        const method = clean(this.__kezhiMethod || 'GET', 10).toUpperCase();
+        if (method !== 'GET') {
+          record(this.__kezhiUrl, method, typeof body === 'string' ? body : '', this.__kezhiContentType || 'application/x-www-form-urlencoded;charset=UTF-8');
+        }
+      } catch (_) {}
+      return send.apply(this, arguments);
+    };
+  }
+  window.__kezhiCollect = function () {
+    const forms = Array.from(document.forms).slice(0, 40).map((form) => ({
+      action: sameOrigin(form.action || location.href),
+      method: clean(form.method || 'GET', 12).toUpperCase(),
+      fields: Array.from(form.elements).map((field) => clean(field.name || field.id, 80)).filter(Boolean).slice(0, 40),
+    })).filter((form) => form.action);
+    const links = Array.from(document.querySelectorAll('a[href]')).slice(0, 240).map((link) => ({
+      url: sameOrigin(link.href), text: clean(link.innerText || link.getAttribute('aria-label'), 100),
+    })).filter((link) => link.url);
+    const resources = performance.getEntriesByType('resource').slice(-300).map((entry) => ({
+      url: sameOrigin(entry.name), initiatorType: clean(entry.initiatorType, 30),
+    })).filter((entry) => entry.url && ['fetch', 'xmlhttprequest', 'script', 'iframe'].includes(entry.initiatorType));
+    const headings = Array.from(document.querySelectorAll('h1,h2,h3,[role="heading"],nav button')).slice(0, 80).map((node) => clean(node.innerText || node.textContent, 120)).filter(Boolean);
+    return JSON.stringify({ pageUrl: location.href, title: clean(document.title, 160), headings, forms, links, resources, requests: log.slice() });
+  };
+})();
+"#;
+
+#[cfg(desktop)]
+fn collect_portal_snapshot(window: &tauri::WebviewWindow) -> Option<String> {
+    let (sender, receiver) = std::sync::mpsc::channel::<String>();
+    window
+        .eval_with_callback(
+            "window.__kezhiCollect ? window.__kezhiCollect() : ''",
+            move |value| {
+                let _ = sender.send(value);
+            },
+        )
+        .ok()?;
+    // WebView 的回调在另一个线程上，这里同步等一小会儿即可。
+    let value = receiver.recv_timeout(Duration::from_secs(3)).ok()?;
+    // 回调拿到的是 JSON 序列化后的字符串，先按 JSON 解一层还原转义。
+    let text = serde_json::from_str::<String>(&value)
+        .unwrap_or_else(|_| value.trim().trim_matches('"').to_string());
+    if !text.starts_with('{') || text.len() > 200_000 {
+        return None;
+    }
+    Some(text)
 }
 
 #[cfg(desktop)]
@@ -379,7 +662,7 @@ async fn fetch_schedule_payload(
     }
     let referer = checked_login_url(site)?.to_string();
     let user_agent = if user_agent.trim().is_empty() {
-        "Kezhi/0.4.1"
+        "Kezhi/0.4.2"
     } else {
         user_agent
     };
@@ -435,7 +718,12 @@ fn portal_login_request(request: &PortalResourceRequest) -> SchoolLoginRequest {
     }
 }
 
-fn checked_portal_endpoint(site: &LoginSite, raw_url: &str) -> Result<tauri::Url, String> {
+/// `allow_submit` 为 true 时放行选课提交类地址，但仍然拒绝退出登录和删除类地址。
+fn checked_portal_endpoint(
+    site: &LoginSite,
+    raw_url: &str,
+    allow_submit: bool,
+) -> Result<tauri::Url, String> {
     if raw_url.len() > 2_048 {
         return Err("候选接口地址过长".into());
     }
@@ -450,7 +738,14 @@ fn checked_portal_endpoint(site: &LoginSite, raw_url: &str) -> Result<tauri::Url
         return Err("只允许检查学校同域的 HTTPS 接口".into());
     }
     let path = endpoint.path().to_ascii_lowercase();
-    if ["logout", "delete", "drop", "submit", "confirm", "save"]
+    if allow_submit {
+        if ["logout", "delete", "drop", "remove", "cancel"]
+            .iter()
+            .any(|word| path.contains(word))
+        {
+            return Err("该地址可能退出登录或删除数据，已拒绝自动提交".into());
+        }
+    } else if ["logout", "delete", "drop", "submit", "confirm", "save"]
         .iter()
         .any(|word| path.contains(word))
     {
@@ -483,7 +778,7 @@ async fn fetch_portal_payload(
         .header(
             reqwest::header::USER_AGENT,
             if user_agent.trim().is_empty() {
-                "Kezhi/0.4.1"
+                "Kezhi/0.4.2"
             } else {
                 user_agent
             },
@@ -523,6 +818,240 @@ async fn fetch_portal_payload(
     })
 }
 
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+#[cfg_attr(target_os = "ios", allow(dead_code))]
+fn portal_submit_login_request(request: &PortalSubmitRequest) -> SchoolLoginRequest {
+    SchoolLoginRequest {
+        school_id: request.school_id.clone(),
+        account_id: request.account_id.clone(),
+        login_url: request.login_url.clone(),
+        purpose: request.purpose.clone(),
+    }
+}
+
+#[cfg_attr(target_os = "ios", allow(dead_code))]
+fn checked_submit_method(raw: &str) -> Result<&'static str, String> {
+    if raw.eq_ignore_ascii_case("GET") {
+        Ok("GET")
+    } else if raw.eq_ignore_ascii_case("POST") {
+        Ok("POST")
+    } else {
+        Err("只支持 GET 或 POST 提交".into())
+    }
+}
+
+#[cfg_attr(target_os = "ios", allow(dead_code))]
+fn endpoint_with_submit_parameters(
+    mut endpoint: tauri::Url,
+    method: &str,
+    body: &str,
+) -> tauri::Url {
+    if method.eq_ignore_ascii_case("GET") {
+        let parameters = body.trim().trim_start_matches('?');
+        if !parameters.is_empty() {
+            let query = endpoint
+                .query()
+                .filter(|value| !value.is_empty())
+                .map(|value| format!("{value}&{parameters}"))
+                .unwrap_or_else(|| parameters.to_string());
+            endpoint.set_query(Some(&query));
+        }
+    }
+    endpoint
+}
+
+/// 真正发起选课提交。返回值里的 HTTP 状态不做过滤——前端要靠它判断
+/// 「已满 / 未开放 / 要验证码 / 登录过期」，这里吞掉就无从判断了。
+#[cfg_attr(target_os = "ios", allow(dead_code))]
+async fn submit_portal_payload(
+    site: &LoginSite,
+    endpoint: tauri::Url,
+    method: &str,
+    body: &str,
+    content_type: &str,
+    cookie_header: String,
+    user_agent: &str,
+) -> Result<PortalSubmitPayload, String> {
+    if cookie_header.is_empty() {
+        return Err("学校登录会话不可用于提交，请重新登录".into());
+    }
+    if body.len() > 8 * 1024 {
+        return Err("提交内容超过 8 KB，已拒绝发送".into());
+    }
+    let endpoint = endpoint_with_submit_parameters(endpoint, method, body);
+    let started = std::time::Instant::now();
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|error| error.to_string())?;
+    let referer = checked_login_site_url(site)?.to_string();
+    let agent = if user_agent.trim().is_empty() {
+        "Kezhi/0.4.2"
+    } else {
+        user_agent
+    };
+    let builder = if method.eq_ignore_ascii_case("GET") {
+        client.get(endpoint.as_str())
+    } else {
+        client.post(endpoint.as_str())
+    }
+    .header(reqwest::header::COOKIE, cookie_header)
+    .header(reqwest::header::REFERER, referer)
+    .header(reqwest::header::USER_AGENT, agent)
+    .header(reqwest::header::CONTENT_TYPE, content_type);
+    let builder = if method.eq_ignore_ascii_case("GET") {
+        builder
+    } else {
+        builder.body(body.to_string())
+    };
+    let response = builder
+        .send()
+        .await
+        .map_err(|error| format!("提交选课请求失败：{error}"))?;
+
+    let status = response.status();
+    let source_url = response.url().to_string();
+    if response.url().host_str() != Some(site.allowed_host.as_str()) {
+        return Err("提交地址跳转到了其他站点，已停止请求".into());
+    }
+    let response_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let payload = response
+        .bytes()
+        .await
+        .map_err(|error| format!("读取提交结果失败：{error}"))?;
+    if payload.len() > 2 * 1024 * 1024 {
+        return Err("学校返回内容超过 2 MB，已停止读取".into());
+    }
+    Ok(PortalSubmitPayload {
+        body: String::from_utf8_lossy(&payload).into_owned(),
+        content_type: response_type,
+        status: status.as_u16(),
+        source_url,
+        elapsed_ms: started.elapsed().as_millis() as u64,
+    })
+}
+
+/// 读一次学校服务器时间，用于校准本机时钟偏差。
+#[cfg_attr(target_os = "ios", allow(dead_code))]
+async fn probe_portal_clock_payload(
+    site: &LoginSite,
+    endpoint: tauri::Url,
+    cookie_header: String,
+    user_agent: &str,
+) -> Result<PortalClockPayload, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|error| error.to_string())?;
+    let agent = if user_agent.trim().is_empty() {
+        "Kezhi/0.4.2"
+    } else {
+        user_agent
+    };
+    let local_sent_at = now_ms();
+    let response = client
+        .get(endpoint.as_str())
+        .header(reqwest::header::COOKIE, cookie_header)
+        .header(reqwest::header::USER_AGENT, agent)
+        .header(
+            reqwest::header::REFERER,
+            checked_login_site_url(site)?.as_str(),
+        )
+        .send()
+        .await
+        .map_err(|error| format!("校时请求失败：{error}"))?;
+    let status = response.status();
+    let local_received_at = now_ms();
+    let server_date = response
+        .headers()
+        .get(reqwest::header::DATE)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_string());
+    if response.url().host_str() != Some(site.allowed_host.as_str()) {
+        return Err("校时地址跳转到了其他站点，已停止请求".into());
+    }
+    Ok(PortalClockPayload {
+        server_date,
+        local_sent_at,
+        local_received_at,
+        status: status.as_u16(),
+    })
+}
+
+#[cfg(desktop)]
+#[tauri::command]
+async fn submit_portal_request(
+    app: tauri::AppHandle,
+    request: PortalSubmitRequest,
+) -> Result<PortalSubmitPayload, String> {
+    let login_request = portal_submit_login_request(&request);
+    let site = resolve_login_site(&login_request)?;
+    let endpoint = checked_portal_endpoint(&site, &request.endpoint_url, true)?;
+    let method = checked_submit_method(&request.method)?;
+    let label = window_label(&login_request)?;
+    let window = app
+        .get_webview_window(&label)
+        .ok_or_else(|| "学校页面已关闭，请先打开选课学习窗口".to_string())?;
+    let cookies = window
+        .cookies_for_url(endpoint.clone())
+        .map_err(|error| error.to_string())?;
+    let cookie_header = cookies
+        .iter()
+        .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
+        .collect::<Vec<_>>()
+        .join("; ");
+    submit_portal_payload(
+        &site,
+        endpoint,
+        method,
+        request.body.as_deref().unwrap_or(""),
+        request
+            .content_type
+            .as_deref()
+            .unwrap_or("application/x-www-form-urlencoded;charset=UTF-8"),
+        cookie_header,
+        "Kezhi/0.4.3 WebView2",
+    )
+    .await
+}
+
+#[cfg(desktop)]
+#[tauri::command]
+async fn probe_portal_clock(
+    app: tauri::AppHandle,
+    request: PortalResourceRequest,
+) -> Result<PortalClockPayload, String> {
+    let login_request = portal_login_request(&request);
+    let site = resolve_login_site(&login_request)?;
+    let endpoint = checked_portal_endpoint(&site, &request.endpoint_url, false)?;
+    let label = window_label(&login_request)?;
+    let window = app
+        .get_webview_window(&label)
+        .ok_or_else(|| "学校页面已关闭，请重新打开学习模式".to_string())?;
+    let cookies = window
+        .cookies_for_url(endpoint.clone())
+        .map_err(|error| error.to_string())?;
+    let cookie_header = cookies
+        .iter()
+        .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
+        .collect::<Vec<_>>()
+        .join("; ");
+    probe_portal_clock_payload(&site, endpoint, cookie_header, "Kezhi/0.4.3 WebView2").await
+}
+
 #[cfg(desktop)]
 #[tauri::command]
 async fn fetch_school_schedule(
@@ -555,7 +1084,7 @@ async fn fetch_school_schedule(
         .collect::<Vec<_>>()
         .join("; ");
 
-    fetch_schedule_payload(site, &request, cookie_header, "Kezhi/0.4.1 WebView2").await
+    fetch_schedule_payload(site, &request, cookie_header, "Kezhi/0.4.3 WebView2").await
 }
 
 #[cfg(desktop)]
@@ -566,7 +1095,7 @@ async fn fetch_portal_resource(
 ) -> Result<PortalResourcePayload, String> {
     let login_request = portal_login_request(&request);
     let site = resolve_login_site(&login_request)?;
-    let endpoint = checked_portal_endpoint(&site, &request.endpoint_url)?;
+    let endpoint = checked_portal_endpoint(&site, &request.endpoint_url, false)?;
     let label = window_label(&login_request)?;
     let window = app
         .get_webview_window(&label)
@@ -579,7 +1108,7 @@ async fn fetch_portal_resource(
         .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
         .collect::<Vec<_>>()
         .join("; ");
-    fetch_portal_payload(&site, endpoint, cookie_header, "Kezhi/0.4.1 WebView2").await
+    fetch_portal_payload(&site, endpoint, cookie_header, "Kezhi/0.4.2 WebView2").await
 }
 
 #[cfg(target_os = "android")]
@@ -595,6 +1124,7 @@ async fn open_school_login(
         .open(AndroidLoginOpenRequest {
             url: url.as_str(),
             allowed_host: &site.allowed_host,
+            school_id: &request.school_id,
             account_id: &account_id,
             mode: request.purpose.as_deref().unwrap_or("schedule"),
         })?;
@@ -620,6 +1150,7 @@ async fn prepare_school_session(
         login.open(AndroidLoginOpenRequest {
             url: url.as_str(),
             allowed_host: &site.allowed_host,
+            school_id: &request.school_id,
             account_id: &account_id,
             mode: request.purpose.as_deref().unwrap_or("schedule"),
         })?;
@@ -689,13 +1220,56 @@ async fn fetch_portal_resource(
 ) -> Result<PortalResourcePayload, String> {
     let login_request = portal_login_request(&request);
     let site = resolve_login_site(&login_request)?;
-    let endpoint = checked_portal_endpoint(&site, &request.endpoint_url)?;
+    let endpoint = checked_portal_endpoint(&site, &request.endpoint_url, false)?;
     let account_id = checked_identifier(&request.account_id, "账号")?;
     let status = app.state::<AndroidSchoolLogin<tauri::Wry>>().status()?;
     if status.account_id != account_id || !status.authenticated {
         return Err("学校登录会话不可用，请重新打开学习模式".into());
     }
     fetch_portal_payload(&site, endpoint, status.cookie_header, &status.user_agent).await
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn submit_portal_request(
+    app: tauri::AppHandle,
+    request: PortalSubmitRequest,
+) -> Result<PortalSubmitPayload, String> {
+    let login_request = portal_submit_login_request(&request);
+    let site = resolve_login_site(&login_request)?;
+    let endpoint = checked_portal_endpoint(&site, &request.endpoint_url, true)?;
+    let method = checked_submit_method(&request.method)?;
+    let account_id = checked_identifier(&request.account_id, "账号")?;
+    let status = app.state::<AndroidSchoolLogin<tauri::Wry>>().status()?;
+    if status.account_id != account_id || !status.authenticated {
+        return Err("学校登录会话不可用，请重新打开学习模式".into());
+    }
+    submit_portal_payload(
+        &site,
+        endpoint,
+        method,
+        request.body.as_deref().unwrap_or(""),
+        request
+            .content_type
+            .as_deref()
+            .unwrap_or("application/x-www-form-urlencoded;charset=UTF-8"),
+        status.cookie_header,
+        &status.user_agent,
+    )
+    .await
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn probe_portal_clock(
+    app: tauri::AppHandle,
+    request: PortalResourceRequest,
+) -> Result<PortalClockPayload, String> {
+    let login_request = portal_login_request(&request);
+    let site = resolve_login_site(&login_request)?;
+    let endpoint = checked_portal_endpoint(&site, &request.endpoint_url, false)?;
+    let status = app.state::<AndroidSchoolLogin<tauri::Wry>>().status()?;
+    probe_portal_clock_payload(&site, endpoint, status.cookie_header, &status.user_agent).await
 }
 
 #[cfg(target_os = "ios")]
@@ -755,14 +1329,34 @@ async fn fetch_portal_resource(
     Err(MOBILE_LOGIN_UNAVAILABLE.into())
 }
 
+#[cfg(target_os = "ios")]
+#[tauri::command]
+async fn submit_portal_request(
+    _app: tauri::AppHandle,
+    _request: PortalSubmitRequest,
+) -> Result<PortalSubmitPayload, String> {
+    Err(MOBILE_LOGIN_UNAVAILABLE.into())
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+async fn probe_portal_clock(
+    _app: tauri::AppHandle,
+    _request: PortalResourceRequest,
+) -> Result<PortalClockPayload, String> {
+    Err(MOBILE_LOGIN_UNAVAILABLE.into())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default().plugin(tauri_plugin_notification::init());
     #[cfg(target_os = "android")]
-    let builder = builder.plugin(android_login::init());
+    let builder = builder.plugin(android_login::init()).plugin(phone_calendar::init());
 
     builder
         .setup(|app| {
+            #[cfg(target_os = "windows")]
+            credential_vault::initialize().map_err(std::io::Error::other)?;
             let data_directory = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_directory)?;
             let store = ScheduleStore::open(&data_directory.join("kezhi.sqlite3"))
@@ -771,16 +1365,22 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            phone_calendar::write_phone_calendar,
             load_schedule_snapshot,
             save_schedule_snapshot,
             load_local_accounts,
             save_local_account,
+            save_login_credential,
+            login_credential_status,
+            delete_login_credential,
             open_school_login,
             prepare_school_session,
             school_login_status,
             hide_school_login,
             fetch_school_schedule,
-            fetch_portal_resource
+            fetch_portal_resource,
+            submit_portal_request,
+            probe_portal_clock
         ])
         .run(tauri::generate_context!())
         .expect("error while running Kezhi");
@@ -840,8 +1440,27 @@ mod tests {
             login_url: "https://jw.example.edu.cn/login".into(),
             allowed_host: "jw.example.edu.cn".into(),
         };
-        assert!(checked_portal_endpoint(&site, "https://jw.example.edu.cn/xk/list").is_ok());
-        assert!(checked_portal_endpoint(&site, "https://evil.example/xk/list").is_err());
-        assert!(checked_portal_endpoint(&site, "https://jw.example.edu.cn/xk/submit").is_err());
+        assert!(checked_portal_endpoint(&site, "https://jw.example.edu.cn/xk/list", false).is_ok());
+        assert!(checked_portal_endpoint(&site, "https://evil.example/xk/list", false).is_err());
+        assert!(
+            checked_portal_endpoint(&site, "https://jw.example.edu.cn/xk/submit", false).is_err()
+        );
+    }
+
+    #[test]
+    fn get_submit_parameters_are_appended_to_the_endpoint() {
+        let endpoint = tauri::Url::parse("https://jw.example.edu.cn/xk/submit?token=abc").unwrap();
+        let result = endpoint_with_submit_parameters(endpoint, "GET", "course=MATH101&mode=fast");
+        assert_eq!(
+            result.as_str(),
+            "https://jw.example.edu.cn/xk/submit?token=abc&course=MATH101&mode=fast"
+        );
+    }
+
+    #[test]
+    fn post_submit_parameters_remain_in_the_request_body() {
+        let endpoint = tauri::Url::parse("https://jw.example.edu.cn/xk/submit").unwrap();
+        let result = endpoint_with_submit_parameters(endpoint.clone(), "POST", "course=MATH101");
+        assert_eq!(result, endpoint);
     }
 }

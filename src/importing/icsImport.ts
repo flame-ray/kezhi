@@ -246,17 +246,28 @@ function parseIcsDate(value: string): Date | undefined {
   const match = value.trim().match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?(Z)?)?$/);
   if (!match) return undefined;
   const [, year, month, day, hour = "12", minute = "00", second = "00", utc] = match;
+  const parts = [year, month, day, hour, minute, second].map(Number);
+  const [yearNumber, monthNumber, dayNumber, hourNumber, minuteNumber, secondNumber] = parts;
   const date = utc
-    ? new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)))
-    : new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
-  return Number.isNaN(date.getTime()) ? undefined : date;
+    ? new Date(Date.UTC(yearNumber, monthNumber - 1, dayNumber, hourNumber, minuteNumber, secondNumber))
+    : new Date(yearNumber, monthNumber - 1, dayNumber, hourNumber, minuteNumber, secondNumber);
+  const valid = utc
+    ? date.getUTCFullYear() === yearNumber && date.getUTCMonth() === monthNumber - 1 && date.getUTCDate() === dayNumber
+      && date.getUTCHours() === hourNumber && date.getUTCMinutes() === minuteNumber && date.getUTCSeconds() === secondNumber
+    : date.getFullYear() === yearNumber && date.getMonth() === monthNumber - 1 && date.getDate() === dayNumber
+      && date.getHours() === hourNumber && date.getMinutes() === minuteNumber && date.getSeconds() === secondNumber;
+  return valid ? date : undefined;
 }
 
 function parseWeekOne(value?: string | Date): Date | undefined {
   if (value instanceof Date && !Number.isNaN(value.getTime())) return mondayOf(value);
   if (typeof value !== "string") return undefined;
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  return match ? mondayOf(new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12)) : undefined;
+  if (!match) return undefined;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12);
+  return date.getFullYear() === Number(match[1]) && date.getMonth() === Number(match[2]) - 1 && date.getDate() === Number(match[3])
+    ? mondayOf(date)
+    : undefined;
 }
 
 function mondayOf(date: Date): Date {

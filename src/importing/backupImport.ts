@@ -1,5 +1,6 @@
 import type { CourseColor, CourseMeeting, CourseStatus, DayOfWeek, ScheduleSnapshot, StudentGrade, TimetablePreset } from "../domain/schedule";
-import { normalizeTeachingStartKey, normalizeTermStartKey } from "../domain/termDate";
+import { isDateKey, normalizeTermStartKey } from "../domain/termDate";
+import { validateTimetablePreset } from "../domain/timetable";
 import { normalizeReminderSettings } from "../reminders/reminderSchedule";
 import { normalizeGrades } from "../grades/gradeCenter";
 import { normalizeSelectionAssistant } from "../selection/selectionAssistant";
@@ -25,17 +26,18 @@ export function parseScheduleBackup(text: string): ScheduleSnapshot {
   const courses = raw.courses.map(parseCourse);
   const presets = raw.presets.map(parsePreset);
   if (!presets.length) throw new Error("备份中没有可用的作息方案");
+  if (new Set(courses.map((course) => course.id)).size !== courses.length) throw new Error("备份中存在重复的课程标识");
+  if (new Set(presets.map((preset) => preset.id)).size !== presets.length) throw new Error("备份中存在重复的作息方案标识");
 
   const requestedPreset = typeof raw.activePresetId === "string" ? raw.activePresetId : presets[0].id;
   const activePresetId = presets.some((preset) => preset.id === requestedPreset) ? requestedPreset : presets[0].id;
 
   const nestedTermStart = isRecord(raw.term) ? raw.term.startsOn : undefined;
   const nestedTeachingStart = isRecord(raw.term) ? raw.term.teachingStartsOn : undefined;
-  const termStartsOn = normalizeTermStartKey(typeof raw.termStartsOn === "string" ? raw.termStartsOn : typeof nestedTermStart === "string" ? nestedTermStart : undefined);
+  const rawTermStart = typeof raw.termStartsOn === "string" ? raw.termStartsOn : typeof nestedTermStart === "string" ? nestedTermStart : undefined;
+  const termStartsOn = isDateKey(rawTermStart) ? normalizeTermStartKey(rawTermStart) : undefined;
   const rawTeachingStart = typeof raw.teachingStartsOn === "string" ? raw.teachingStartsOn : typeof nestedTeachingStart === "string" ? nestedTeachingStart : undefined;
-  const teachingStartsOn = rawTeachingStart
-    ? normalizeTeachingStartKey(rawTeachingStart, termStartsOn)
-    : undefined;
+  const teachingStartsOn = isDateKey(rawTeachingStart) ? rawTeachingStart : undefined;
   return {
     courses,
     presets,
@@ -93,8 +95,11 @@ function parsePreset(value: unknown, index: number): TimetablePreset {
     const itemIndex = numberInRange(period.index, 1, 30);
     if (!itemIndex || !isTime(period.start) || !isTime(period.end)) throw new Error(`${id} 的第 ${periodIndex + 1} 节时间无效`);
     return { index: itemIndex, start: period.start as string, end: period.end as string };
-  });
-  return { id, name: optionalText(value.name, `作息方案 ${index + 1}`), periods };
+  }).sort((left, right) => left.index - right.index);
+  const preset = { id, name: optionalText(value.name, `作息方案 ${index + 1}`), periods };
+  const validationError = validateTimetablePreset(preset);
+  if (validationError) throw new Error(`${id}：${validationError}`);
+  return preset;
 }
 
 function requiredText(value: unknown, label: string, index: number): string {

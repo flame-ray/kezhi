@@ -2,6 +2,7 @@ import { useRef, useState, type DragEvent } from "react";
 import type { CourseMeeting, TimetablePreset } from "../domain/schedule";
 import { parseIcsSchedule, type IcsImportResult } from "../importing/icsImport";
 import { Icon } from "../ui/Icon";
+import { DialogSurface } from "../ui/DialogSurface";
 
 export type CalendarImportMode = "merge" | "replace";
 
@@ -78,8 +79,7 @@ export function CalendarImportDialog({ preset, currentTermStartsOn, hasExistingC
   };
 
   return (
-    <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}>
-      <section className="dialog calendar-import-dialog" role="dialog" aria-modal="true" aria-labelledby="calendar-import-title" onMouseDown={(event) => event.stopPropagation()}>
+    <DialogSurface className="calendar-import-dialog" labelledBy="calendar-import-title" onClose={onClose}>
         <header className="dialog-header">
           <div><span className="eyebrow">导入日历</span><h2 id="calendar-import-title">从 ICS 生成课表</h2></div>
           <button className="icon-button" onClick={onClose} aria-label="关闭"><Icon name="close" /></button>
@@ -124,7 +124,6 @@ export function CalendarImportDialog({ preset, currentTermStartsOn, hasExistingC
           <button className="cancel-button" onClick={onClose}>取消</button>
           <button className="primary-button" disabled={!result} onClick={() => result && onImport(result.courses, result.weekOneStartsOn, mode)}>导入 {result?.courses.length ?? 0} 门课程</button>
         </footer>
-      </section>
-    </div>
+    </DialogSurface>
   );
 }

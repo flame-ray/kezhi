@@ -1,4 +1,6 @@
 import { Icon } from "../ui/Icon";
+import { useRef } from "react";
+import { NavigationIndicator } from "../ui/NavigationIndicator";
 
 const primaryItems = [
   ["课表", "calendar"],
@@ -19,6 +21,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ active, schoolName = "尚未连接学校", onNavigate }: SidebarProps) {
+  const navigationRef = useRef<HTMLElement>(null);
   return (
     <aside className="sidebar">
       <div className="brand" aria-label="课织">
@@ -26,11 +29,13 @@ export function Sidebar({ active, schoolName = "尚未连接学校", onNavigate 
         <span className="brand-copy"><strong>课织</strong><small>KEZHI</small></span>
       </div>
 
-      <nav className="nav-list" aria-label="主导航">
+      <nav ref={navigationRef} className="nav-list primary-navigation" aria-label="主导航">
+        <NavigationIndicator active={active} container={navigationRef} />
         {primaryItems.map(([label, icon]) => (
           <button
             className={`nav-item ${active === label ? "active" : ""}`}
             key={label}
+            aria-current={active === label ? "page" : undefined}
             onClick={() => onNavigate(label)}
           >
             <Icon name={icon} />
@@ -39,6 +44,7 @@ export function Sidebar({ active, schoolName = "尚未连接学校", onNavigate 
         ))}
         <button
           className={`nav-item mobile-nav-item ${active === "设置" ? "active" : ""}`}
+          aria-current={active === "设置" ? "page" : undefined}
           onClick={() => onNavigate("设置")}
         >
           <Icon name="settings" />

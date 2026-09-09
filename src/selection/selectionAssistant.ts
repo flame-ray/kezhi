@@ -1,3 +1,5 @@
+import { normalizeAutoGrabConfig, type AutoGrabConfig, type GrabSubmitTemplate } from "./autoGrab";
+
 export type SelectionTargetStatus = "watching" | "paused" | "available" | "submitted" | "failed" | "unknown";
 
 export interface PortalFormSignal {
@@ -16,6 +18,14 @@ export interface PortalResourceSignal {
   initiatorType: string;
 }
 
+/** 用户在选课页实际操作过的写请求，用来推断提交接口 */
+export interface PortalRequestSignal {
+  url: string;
+  method: string;
+  body?: string;
+  contentType?: string;
+}
+
 export interface PortalPageSnapshot {
   pageUrl: string;
   title: string;
@@ -23,6 +33,7 @@ export interface PortalPageSnapshot {
   forms: PortalFormSignal[];
   links: PortalLinkSignal[];
   resources: PortalResourceSignal[];
+  requests?: PortalRequestSignal[];
 }
 
 export interface PortalEndpointCandidate {
@@ -46,6 +57,8 @@ export interface LearnedPortalAdapter {
   entryUrl: string;
   evidence: string[];
   candidates: PortalEndpointCandidate[];
+  /** 从捕获到的写请求里推断出的提交模板，用户确认后即可全自动抢课 */
+  submitTemplate?: GrabSubmitTemplate;
 }
 
 export interface SelectionTarget {
@@ -79,6 +92,8 @@ export interface SelectionAssistantState {
   requireConfirmation: true;
   consecutiveFailures: number;
   schedule?: SelectionRunSchedule;
+  /** 全自动抢课配置，缺省表示用户从未开启过 */
+  autoGrab?: AutoGrabConfig;
 }
 
 export interface SeatObservation {
@@ -125,6 +140,7 @@ export function normalizeSelectionAssistant(value: unknown): SelectionAssistantS
     requireConfirmation: true,
     consecutiveFailures: integerInRange(value.consecutiveFailures, 0, 20) ?? 0,
     schedule: parseSchedule(value.schedule),
+    autoGrab: value.autoGrab ? normalizeAutoGrabConfig(value.autoGrab) : undefined,
   };
 }
 
@@ -214,6 +230,45 @@ export function learnSelectionInterface(snapshot: PortalPageSnapshot, portalUrl:
     entryUrl: candidates.find((item) => item.source === "link" || item.source === "page")?.url ?? pageUrl,
     evidence: evidence.length ? evidence : ["已记录当前教务页面，尚未发现明确的选课入口"],
     candidates,
+    submitTemplate: inferSubmitTemplate(snapshot, origin),
+  };
+}
+
+const submitActionKeywords = ["选课", "xk", "choose", "select", "elect", "add", "save", "submit", "tj", "baocun"];
+const submitNoiseKeywords = ["query", "list", "search", "count", "page", "detail", "cx"];
+
+/**
+ * 从用户实际操作过的写请求里推断提交接口。
+ * 这样用户点一次「选课」按钮就够了，不用自己开开发者工具抓包。
+ */
+export function inferSubmitTemplate(snapshot: PortalPageSnapshot, origin: string): GrabSubmitTemplate | undefined {
+  const scored: { url: string; body: string; contentType?: string; score: number }[] = [];
+  for (const request of snapshot.requests ?? []) {
+    if (request.method.trim().toUpperCase() !== "POST") continue;
+    const url = safeSameOriginUrl(request.url, origin);
+    if (!url) continue;
+    let path = "";
+    try {
+      path = new URL(url).pathname.toLowerCase();
+    } catch {
+      continue;
+    }
+    // 查询、列表类地址直接排除，它们只是恰好用了 POST。
+    if (submitNoiseKeywords.some((keyword) => path.includes(keyword))) continue;
+    const haystack = `${url} ${request.body ?? ""}`.toLowerCase();
+    let score = submitActionKeywords.reduce((total, keyword) => total + (haystack.includes(keyword) ? 3 : 0), 0);
+    if (request.body?.trim()) score += 2;
+    if (score <= 0) continue;
+    scored.push({ url, body: request.body ?? "", contentType: request.contentType, score });
+  }
+  scored.sort((left, right) => right.score - left.score);
+  const best = scored[0];
+  if (!best) return undefined;
+  return {
+    endpointUrl: best.url,
+    method: "POST",
+    bodyTemplate: best.body.slice(0, 8_000),
+    contentType: best.contentType?.trim() || "application/x-www-form-urlencoded;charset=UTF-8",
   };
 }
 
@@ -363,6 +418,21 @@ function parseAdapter(value: unknown): LearnedPortalAdapter | undefined {
     entryUrl: safeSameOriginUrl(value.entryUrl, origin) ?? portalUrl,
     evidence: Array.isArray(value.evidence) ? value.evidence.map((item) => cleanText(item, 160)).filter(Boolean).slice(0, 5) : [],
     candidates,
+    submitTemplate: parseSubmitTemplate(value.submitTemplate),
+  };
+}
+
+function parseSubmitTemplate(value: unknown): GrabSubmitTemplate | undefined {
+  if (!isRecord(value)) return undefined;
+  const url = safeHttpsUrl(value.endpointUrl);
+  if (!url) return undefined;
+  return {
+    endpointUrl: url,
+    method: value.method === "GET" ? "GET" : "POST",
+    bodyTemplate: typeof value.bodyTemplate === "string" ? value.bodyTemplate.slice(0, 8_000) : "",
+    contentType: typeof value.contentType === "string" && value.contentType.trim()
+      ? value.contentType.trim().slice(0, 200)
+      : "application/x-www-form-urlencoded;charset=UTF-8",
   };
 }
 

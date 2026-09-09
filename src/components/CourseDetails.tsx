@@ -1,6 +1,8 @@
 import type { CourseMeeting, ReminderSettings, TimetablePreset } from "../domain/schedule";
 import { effectiveReminderMinutes } from "../reminders/reminderSchedule";
 import { Icon } from "../ui/Icon";
+import { DialogSurface } from "../ui/DialogSurface";
+import { MotionRegion, Presence, useCompactLayout } from "../ui/Motion";
 
 const dayNames = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
@@ -14,7 +16,13 @@ interface CourseDetailsProps {
   onOpenReminderSettings: () => void;
 }
 
-export function CourseDetails({ meeting, preset, reminderSettings, onClose, onEdit, onReminderChange, onOpenReminderSettings }: CourseDetailsProps) {
+export function CourseDetails(props: CourseDetailsProps) {
+  const compact = useCompactLayout();
+  if (compact) return <Presence>{props.meeting && <DialogSurface className="course-detail-dialog" labelledBy="course-detail-title" onClose={props.onClose}><CourseDetailContent {...props} /></DialogSurface>}</Presence>;
+  return <MotionRegion className="desktop-course-details" motionKey={props.meeting?.id ?? "empty"}><CourseDetailContent {...props} /></MotionRegion>;
+}
+
+function CourseDetailContent({ meeting, preset, reminderSettings, onClose, onEdit, onReminderChange, onOpenReminderSettings }: CourseDetailsProps) {
   if (!meeting) {
     return (
       <aside className="detail-panel detail-empty">
@@ -44,7 +52,7 @@ export function CourseDetails({ meeting, preset, reminderSettings, onClose, onEd
       </div>
       <span className={`detail-color color-${meeting.color}`} />
       <div className="detail-code">{meeting.courseCode}</div>
-      <h2>{meeting.title}</h2>
+      <h2 id="course-detail-title">{meeting.title}</h2>
       <p className="detail-subtitle">{weekText}</p>
 
       <div className="detail-list">

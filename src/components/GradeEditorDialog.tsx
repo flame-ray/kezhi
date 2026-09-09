@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { GradeRecord } from "../grades/gradeCenter";
 import { Icon } from "../ui/Icon";
+import { DialogSurface } from "../ui/DialogSurface";
 
 interface GradeEditorDialogProps {
   grade?: GradeRecord;
@@ -53,11 +54,10 @@ export function GradeEditorDialog({ grade, defaultYear, defaultSemester, onSave,
   };
 
   return (
-    <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="dialog grade-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="grade-editor-title">
+    <DialogSurface className="grade-editor-dialog" labelledBy="grade-editor-title" onClose={onClose}>
         <header className="dialog-header"><div><span className="eyebrow">本地成绩记录</span><h2 id="grade-editor-title">{grade ? "编辑成绩" : "录入成绩"}</h2><p>支持百分制、等级制和“待公布”等状态。</p></div><button className="icon-button" onClick={onClose}><Icon name="close" /></button></header>
         <div className="dialog-body grade-editor-body">
-          <label className="field wide"><span>课程名称</span><input autoFocus value={courseName} onChange={(event) => setCourseName(event.target.value)} placeholder="例如：高等数学（一）" /></label>
+          <label className="field wide"><span>课程名称</span><input value={courseName} onChange={(event) => setCourseName(event.target.value)} placeholder="例如：高等数学（一）" /></label>
           <label className="field"><span>课程编号</span><input value={courseCode} onChange={(event) => setCourseCode(event.target.value)} placeholder="可选" /></label>
           <label className="field"><span>课程类别</span><input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="必修 / 选修" /></label>
           <label className="field"><span>成绩</span><input value={score} onChange={(event) => setScore(event.target.value)} placeholder="92 / 优秀 / 通过" /></label>
@@ -67,9 +67,8 @@ export function GradeEditorDialog({ grade, defaultYear, defaultSemester, onSave,
           <label className="field"><span>学期</span><select value={semester} onChange={(event) => setSemester(Number(event.target.value) as 1 | 2)}><option value="1">第一学期</option><option value="2">第二学期</option></select></label>
           {error && <div className="form-error wide"><Icon name="warning" />{error}</div>}
         </div>
-        <footer className="dialog-footer">{grade && onDelete ? <button className="danger-button" onClick={() => onDelete(grade.id)}><Icon name="trash" />删除</button> : <span />}<div><button className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" onClick={submit}><Icon name="check" />保存成绩</button></div></footer>
-      </section>
-    </div>
+        <footer className="dialog-footer">{grade && onDelete ? <button className="danger-button" onClick={() => onDelete(grade.id)}><Icon name="trash" />删除</button> : <span />}<div className="footer-actions"><button className="cancel-button" onClick={onClose}>取消</button><button className="primary-button" onClick={submit}><Icon name="check" />保存成绩</button></div></footer>
+    </DialogSurface>
   );
 }
 

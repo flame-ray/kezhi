@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applySeatPayload, armSelectionSchedule, learnSelectionInterface, markSelectionScheduleTriggered, nextMonitorDelaySeconds, normalizeSelectionAssistant, observeSeatAvailability, recordMonitorFailure, selectionSchedulePhase } from "./selectionAssistant";
+import { applySeatPayload, armSelectionSchedule, inferSubmitTemplate, learnSelectionInterface, markSelectionScheduleTriggered, nextMonitorDelaySeconds, normalizeSelectionAssistant, observeSeatAvailability, recordMonitorFailure, selectionSchedulePhase } from "./selectionAssistant";
 
 describe("selection assistant", () => {
   it("learns same-origin selection candidates from an observed page", () => {
@@ -54,6 +54,33 @@ describe("selection assistant", () => {
     expect(selectionSchedulePhase(state.schedule, new Date("2026-09-08T01:06:00.000Z"))).toBe("preflight");
     expect(selectionSchedulePhase(state.schedule, new Date("2026-09-08T01:10:00.000Z"))).toBe("due");
     expect(selectionSchedulePhase(markSelectionScheduleTriggered(state, now).schedule, now)).toBe("triggered");
+  });
+
+  it("infers a submit template from the write requests the user actually made", () => {
+    const template = inferSubmitTemplate({
+      pageUrl: "https://jw.example.edu.cn/jwglxt/xsxk/choose",
+      title: "学生选课中心",
+      headings: [],
+      forms: [],
+      links: [],
+      resources: [],
+      requests: [
+        { url: "https://jw.example.edu.cn/jwglxt/xsxk/list?gnmkdm=N2151", method: "POST", body: "xkfs=1" },
+        { url: "https://jw.example.edu.cn/jwglxt/xsxk/queryXk", method: "GET", body: "" },
+        { url: "https://jw.example.edu.cn/jwglxt/xsxk/saveXk", method: "POST", body: "jx0404id=MATH101", contentType: "application/x-www-form-urlencoded" },
+      ],
+    }, "https://jw.example.edu.cn");
+
+    expect(template).toMatchObject({
+      endpointUrl: "https://jw.example.edu.cn/jwglxt/xsxk/saveXk",
+      method: "POST",
+      bodyTemplate: "jx0404id=MATH101",
+    });
+  });
+
+  it("ignores query-only traffic and off-origin requests", () => {
+    expect(inferSubmitTemplate({ pageUrl: "https://jw.example.edu.cn/xk", title: "x", headings: [], forms: [], links: [], resources: [], requests: [{ url: "https://jw.example.edu.cn/jwglxt/xsxk/query", method: "POST", body: "a=1" }] }, "https://jw.example.edu.cn")).toBeUndefined();
+    expect(inferSubmitTemplate({ pageUrl: "https://jw.example.edu.cn/xk", title: "x", headings: [], forms: [], links: [], resources: [], requests: [{ url: "https://evil.test/xk/save", method: "POST", body: "a=1" }] }, "https://jw.example.edu.cn")).toBeUndefined();
   });
 
   it("rejects schedules that are already due", () => {

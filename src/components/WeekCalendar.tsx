@@ -17,6 +17,7 @@ import {
 } from "../interaction/longPress";
 import { resistedWeekOffset, resolveWeekSwipe, type WeekDelta } from "../interaction/weekPaging";
 import { Icon } from "../ui/Icon";
+import { reducedMotion } from "../ui/Motion";
 
 const dayNames = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 const shortDayNames = ["一", "二", "三", "四", "五", "六", "日"];
@@ -192,7 +193,7 @@ export function WeekCalendar({
     writeTrackOffset(dragOffsetRef.current);
     const targetOffset = delta === 1 ? -width : delta === -1 ? width : 0;
     const remainingRatio = Math.min(1, Math.abs(targetOffset - dragOffsetRef.current) / Math.max(1, width));
-    const duration = Math.round(MIN_PAGE_TRANSITION_MS + (MAX_PAGE_TRANSITION_MS - MIN_PAGE_TRANSITION_MS) * remainingRatio);
+    const duration = reducedMotion() ? 0 : Math.round(MIN_PAGE_TRANSITION_MS + (MAX_PAGE_TRANSITION_MS - MIN_PAGE_TRANSITION_MS) * remainingRatio);
     const track = trackRef.current;
     track?.style.setProperty("--week-duration", `${duration}ms`);
     track?.classList.add("settling");
@@ -203,6 +204,28 @@ export function WeekCalendar({
       writeTrackOffset(targetOffset);
     });
     transitionTimerRef.current = window.setTimeout(completeTransition, duration + 100);
+  };
+
+  const cancelSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const gesture = gestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    gestureRef.current = undefined;
+    if (!gesture.horizontal) return;
+    settlingDelta.current = 0;
+    transitioningRef.current = true;
+    markSwiping(false);
+    cancelAnimationFrame();
+    writeTrackOffset(dragOffsetRef.current);
+    const track = trackRef.current;
+    track?.style.setProperty("--week-duration", `${MIN_PAGE_TRANSITION_MS}ms`);
+    track?.classList.add("settling");
+    void track?.offsetWidth;
+    animationFrameRef.current = window.requestAnimationFrame(() => {
+      animationFrameRef.current = undefined;
+      dragOffsetRef.current = 0;
+      writeTrackOffset(0);
+    });
+    transitionTimerRef.current = window.setTimeout(completeTransition, MIN_PAGE_TRANSITION_MS + 100);
   };
 
   const finishTransition = (event: ReactTransitionEvent<HTMLDivElement>) => {
@@ -217,7 +240,7 @@ export function WeekCalendar({
       onPointerDown={beginSwipe}
       onPointerMove={moveSwipe}
       onPointerUp={finishSwipe}
-      onPointerCancel={finishSwipe}
+      onPointerCancel={cancelSwipe}
     >
       <div ref={trackRef} className="week-swipe-track" onTransitionEnd={finishTransition}>
         <div ref={previousPageRef} className="calendar-scroll week-page" aria-hidden="true">
@@ -360,7 +383,7 @@ function CalendarCell({ style, label, onCreate, onMove }: CalendarCellProps) {
   const originRef = useRef<{ x: number; y: number } | undefined>(undefined);
   const pointerRef = useRef<number | undefined>(undefined);
   const firedRef = useRef(false);
-  const suppressedContextMenuRef = useRef(false);
+  const cleanupPressRef = useRef<(() => void) | undefined>(undefined);
   const [pressing, setPressing] = useState(false);
 
   const cancelPress = () => {
@@ -370,13 +393,15 @@ function CalendarCell({ style, label, onCreate, onMove }: CalendarCellProps) {
     feedbackTimerRef.current = undefined;
     originRef.current = undefined;
     pointerRef.current = undefined;
-    suppressedContextMenuRef.current = false;
+    cleanupPressRef.current?.();
+    cleanupPressRef.current = undefined;
     setPressing(false);
   };
 
   useEffect(() => () => {
     if (timerRef.current !== undefined) window.clearTimeout(timerRef.current);
     if (feedbackTimerRef.current !== undefined) window.clearTimeout(feedbackTimerRef.current);
+    cleanupPressRef.current?.();
   }, []);
 
   const triggerCreate = () => {
@@ -395,12 +420,32 @@ function CalendarCell({ style, label, onCreate, onMove }: CalendarCellProps) {
       style={style}
       aria-label={onCreate ? `${label}，按住约 0.8 秒添加课程` : label}
       onPointerDown={(event) => {
-        if (!onCreate || (event.pointerType === "mouse" && event.button !== 0)) return;
+        if (!onCreate || !event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return;
+        if ((event.target as HTMLElement).closest(".week-swipe-viewport")?.querySelector(".settling")) return;
         cancelPress();
         firedRef.current = false;
-        suppressedContextMenuRef.current = false;
         pointerRef.current = event.pointerId;
         originRef.current = { x: event.clientX, y: event.clientY };
+        // Capture-phase listeners survive the pager taking pointer capture.
+        const move = (e: PointerEvent) => {
+          if (e.pointerId === pointerRef.current && originRef.current && shouldCancelLongPress(originRef.current, { x: e.clientX, y: e.clientY })) cancelPress();
+        };
+        const end = (e: PointerEvent) => { if (e.pointerId === pointerRef.current) cancelPress(); };
+        const anotherPointer = (e: PointerEvent) => { if (e.pointerId !== pointerRef.current) cancelPress(); };
+        window.addEventListener("pointermove", move, true);
+        window.addEventListener("pointerup", end, true);
+        window.addEventListener("pointercancel", end, true);
+        window.addEventListener("pointerdown", anotherPointer, true);
+        window.addEventListener("scroll", cancelPress, true);
+        window.addEventListener("blur", cancelPress);
+        cleanupPressRef.current = () => {
+          window.removeEventListener("pointermove", move, true);
+          window.removeEventListener("pointerup", end, true);
+          window.removeEventListener("pointercancel", end, true);
+          window.removeEventListener("pointerdown", anotherPointer, true);
+          window.removeEventListener("scroll", cancelPress, true);
+          window.removeEventListener("blur", cancelPress);
+        };
         feedbackTimerRef.current = window.setTimeout(() => setPressing(true), LONG_PRESS_FEEDBACK_MS);
         timerRef.current = window.setTimeout(triggerCreate, LONG_PRESS_DELAY_MS);
       }}
@@ -410,14 +455,17 @@ function CalendarCell({ style, label, onCreate, onMove }: CalendarCellProps) {
         if (shouldCancelLongPress(origin, { x: event.clientX, y: event.clientY })) cancelPress();
       }}
       onPointerUp={cancelPress}
-      onPointerCancel={() => { if (!suppressedContextMenuRef.current) cancelPress(); }}
+      onPointerCancel={cancelPress}
+      onLostPointerCapture={cancelPress}
       onPointerLeave={(event) => { if (event.pointerType === "mouse") cancelPress(); }}
       onContextMenu={(event) => {
         event.preventDefault();
-        suppressedContextMenuRef.current = Boolean(originRef.current);
       }}
       onClick={(event) => {
-        if (event.detail === 0) triggerCreate();
+        if (event.detail === 0 && !(event.nativeEvent as PointerEvent).pointerType) {
+          firedRef.current = false;
+          triggerCreate();
+        }
       }}
       onDragOver={(event) => { if (onMove) event.preventDefault(); }}
       onDrop={(event) => {

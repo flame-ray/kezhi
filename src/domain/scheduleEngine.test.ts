@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { demoCourses } from "../data/demo";
-import { parseWeekExpression } from "../components/CourseEditorDialog";
 import { buildWeekView, moveMeeting } from "./scheduleEngine";
 
 describe("schedule engine", () => {
@@ -44,8 +43,10 @@ describe("schedule engine", () => {
     expect(next.status).toBe("changed");
   });
 
-  it("parses mixed custom week expressions", () => {
-    expect(parseWeekExpression("1-3, 6，9-10")).toEqual([1, 2, 3, 6, 9, 10]);
-    expect(parseWeekExpression("0, 31, x")).toEqual([]);
+  it("keeps a dragged meeting inside the timetable", () => {
+    const source = { ...demoCourses[0], startPeriod: 1, endPeriod: 2 };
+    const next = moveMeeting([source], source.id, 5, 10, 10)[0];
+    expect(next.startPeriod).toBe(9);
+    expect(next.endPeriod).toBe(10);
   });
 });

@@ -43,4 +43,28 @@ describe("schedule backup import", () => {
     expect(() => parseScheduleBackup("not json")).toThrow("有效的 JSON");
     expect(() => parseScheduleBackup(JSON.stringify({ format: "other", version: 1 }))).toThrow("不是受支持");
   });
+
+  it("keeps missing legacy calendar dates unset for the selected academic year", () => {
+    const restored = parseScheduleBackup(JSON.stringify({
+      format: "kezhi-schedule",
+      version: 1,
+      courses: [],
+      presets: defaultPresets,
+      activePresetId: defaultPresets[0].id,
+      academicYear: 2027,
+      semester: 2,
+    }));
+    expect(restored.termStartsOn).toBeUndefined();
+    expect(restored.teachingStartsOn).toBeUndefined();
+  });
+
+  it("rejects invalid or duplicated timetable structures before persistence", () => {
+    expect(() => parseScheduleBackup(JSON.stringify({
+      format: "kezhi-schedule",
+      version: 1,
+      courses: [],
+      presets: [{ id: "bad", name: "错误作息", periods: [{ index: 2, start: "09:00", end: "08:00" }] }],
+      activePresetId: "bad",
+    }))).toThrow();
+  });
 });

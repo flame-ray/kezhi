@@ -36,15 +36,21 @@ export function moveMeeting(
   meetingId: string,
   day: DayOfWeek,
   startPeriod: number,
+  maxPeriod?: number,
 ): CourseMeeting[] {
   return courses.map((course) => {
     if (course.id !== meetingId) return course;
-    const span = course.endPeriod - course.startPeriod;
+    const span = Math.max(0, course.endPeriod - course.startPeriod);
+    const requestedStart = Number.isFinite(startPeriod) ? Math.round(startPeriod) : course.startPeriod;
+    const lastStart = Number.isFinite(maxPeriod)
+      ? Math.max(1, Math.floor(maxPeriod as number) - span)
+      : Number.POSITIVE_INFINITY;
+    const safeStart = Math.max(1, Math.min(requestedStart, lastStart));
     return {
       ...course,
       day,
-      startPeriod,
-      endPeriod: startPeriod + span,
+      startPeriod: safeStart,
+      endPeriod: safeStart + span,
       status: "changed",
     };
   });

@@ -1,5 +1,7 @@
 import type { StudentGrade, TimetablePreset } from "../domain/schedule";
+import { appendTimetablePeriod } from "../domain/timetable";
 import { Icon } from "../ui/Icon";
+import { DialogSurface } from "../ui/DialogSurface";
 
 interface TimetableDialogProps {
   presets: TimetablePreset[];
@@ -31,15 +33,16 @@ export function TimetableDialog({
   onClose,
 }: TimetableDialogProps) {
   const active = presets.find((preset) => preset.id === activeId) ?? presets[0];
+  const appendedPreset = appendTimetablePeriod(active);
 
   return (
-    <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}>
-      <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="timetable-title" onMouseDown={(event) => event.stopPropagation()}>
+    <DialogSurface className="timetable-dialog" labelledBy="timetable-title" onClose={onClose}>
         <header className="dialog-header">
           <div><span className="eyebrow">作息方案</span><h2 id="timetable-title">让时间适应你的学校</h2></div>
           <button className="icon-button" onClick={onClose}><Icon name="close" /></button>
         </header>
 
+        <div className="timetable-scroll">
         <div className="calendar-date-settings">
           <div className="term-date-setting">
             <div><strong>当前年级</strong><span>切换年级会自动采用对应校历，你仍可继续修改日期</span></div>
@@ -94,11 +97,14 @@ export function TimetableDialog({
           ))}
         </div>
 
+        </div>
         <footer className="dialog-footer">
           <span>修改会自动保存在本机</span>
-          <button className="primary-button" onClick={onClose}>完成</button>
+          <div className="footer-actions">
+            <button className="soft-button" disabled={!appendedPreset} onClick={() => appendedPreset && onChange(appendedPreset)}><Icon name="plus" />添加下一节</button>
+            <button className="primary-button" onClick={onClose}>完成</button>
+          </div>
         </footer>
-      </section>
-    </div>
+    </DialogSurface>
   );
 }

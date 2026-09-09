@@ -7,9 +7,11 @@ import { createLocalAccount, loadLocalAccounts } from "../importing/accountStore
 import { parseScheduleBackup } from "../importing/backupImport";
 import { resolveSchoolLoginUrl, schoolCatalog, type SchoolDefinition } from "../importing/schoolCatalog";
 import { parseZhengfangSchedule, type ScheduleAdapterResult } from "../importing/zhengfangAdapter";
-import { fetchSchoolSchedule, getSchoolLoginStatus, hideSchoolLogin, openSchoolLogin } from "../platform/tauriBridge";
+import { deleteLoginCredential, fetchSchoolSchedule, getLoginCredentialStatus, getSchoolLoginStatus, hideSchoolLogin, openSchoolLogin, saveLoginCredential } from "../platform/tauriBridge";
 import { getRuntimeCapabilities } from "../platform/runtime";
 import { Icon } from "../ui/Icon";
+import { DialogSurface } from "../ui/DialogSurface";
+import { MotionRegion } from "../ui/Motion";
 
 export interface ImportWizardHandle {
   goBack: () => void;
@@ -42,6 +44,10 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
   const [selectedAccountId, setSelectedAccountId] = useState(activeAccountId ?? "new");
   const [accountLabel, setAccountLabel] = useState("");
   const [loginName, setLoginName] = useState("");
+  const [password, setPassword] = useState("");
+  const [rememberPassword, setRememberPassword] = useState(true);
+  const [credentialSaved, setCredentialSaved] = useState(false);
+  const [credentialChecking, setCredentialChecking] = useState(false);
   const [activeAccount, setActiveAccount] = useState<LocalAccountProfile>();
   const [loginState, setLoginState] = useState<LoginState>("idle");
   const [loginError, setLoginError] = useState<string>();
@@ -116,6 +122,22 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
   }, []);
 
   useEffect(() => {
+    setPassword("");
+    if (!loginCapable || selectedAccountId === "new") {
+      setCredentialSaved(false);
+      setCredentialChecking(false);
+      return;
+    }
+    let cancelled = false;
+    setCredentialChecking(true);
+    getLoginCredentialStatus({ schoolId: school.id, accountId: selectedAccountId })
+      .then((status) => { if (!cancelled) setCredentialSaved(status.saved); })
+      .catch((error) => { if (!cancelled) setLoginError(error instanceof Error ? error.message : String(error)); })
+      .finally(() => { if (!cancelled) setCredentialChecking(false); });
+    return () => { cancelled = true; };
+  }, [loginCapable, school.id, selectedAccountId]);
+
+  useEffect(() => {
     if (!embeddedLogin || loginState !== "opening" || !activeAccount) return;
     let cancelled = false;
     let checking = false;
@@ -164,6 +186,8 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
       setSelectedAccountId("new");
       setAccountLabel("");
       setLoginName("");
+      setPassword("");
+      setCredentialSaved(false);
       setActiveAccount(undefined);
       setLoginState("idle");
       setLoginError(undefined);
@@ -204,9 +228,29 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
     applyAccountCalendar(account);
     setLoginState("opening");
     try {
+      if (rememberPassword && password) {
+        await saveLoginCredential({ schoolId: school.id, accountId: account.id, username: account.loginName, password });
+        setCredentialSaved(true);
+        setPassword("");
+      } else if (!rememberPassword && credentialSaved) {
+        await deleteLoginCredential({ schoolId: school.id, accountId: account.id });
+        setCredentialSaved(false);
+      }
       await openSchoolLogin({ schoolId: school.id, accountId: account.id });
     } catch (error) {
       setLoginState("idle");
+      setLoginError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const removeSavedCredential = async () => {
+    if (selectedAccountId === "new") return;
+    setLoginError(undefined);
+    try {
+      await deleteLoginCredential({ schoolId: school.id, accountId: selectedAccountId });
+      setCredentialSaved(false);
+      setPassword("");
+    } catch (error) {
       setLoginError(error instanceof Error ? error.message : String(error));
     }
   };
@@ -290,15 +334,14 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
   };
 
   return (
-    <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}>
-      <section className="dialog import-dialog" role="dialog" aria-modal="true" aria-labelledby="import-title" onMouseDown={(event) => event.stopPropagation()}>
+    <DialogSurface className="import-dialog" labelledBy="import-title" onClose={onClose} onBack={goBack}>
         <header className="dialog-header import-header">
-          <div><span className="eyebrow">导入教务课表</span><h2 id="import-title">连接你的学校</h2></div>
+          <div><span className="eyebrow">导入教务课表</span><h2 id="import-title">{["连接你的学校", "登录与账号", manualImportFlow ? "选择导入方式" : "确认教学日历", "确认你的课表"][step - 1]}</h2><p className="dialog-description">第 {step} 步，共 {wizardSteps.length} 步 · {wizardSteps[step - 1]}</p></div>
           <button className="icon-button" onClick={onClose} aria-label="关闭"><Icon name="close" /></button>
         </header>
         <div className="wizard-steps" style={{ gridTemplateColumns: `repeat(${wizardSteps.length}, 1fr)` }}>{wizardSteps.map((label, index) => <div className={`${step === index + 1 ? "active" : ""} ${step > index + 1 ? "done" : ""}`} key={label}><i>{step > index + 1 ? <Icon name="check" /> : index + 1}</i><span>{label}</span></div>)}</div>
 
-        <div className="wizard-body">
+        <MotionRegion className="wizard-body" motionKey={step}>
           {step === 1 && <div className="url-entry-stage">
             <label className={`school-url-field ${urlError ? "invalid" : ""}`}>
               <span className="school-url-box"><Icon name="shield" /><input type="url" inputMode="url" enterKeyHint="go" value={schoolUrl} autoCapitalize="none" autoCorrect="off" spellCheck={false} onChange={(event) => { setSchoolUrl(event.target.value); setUrlError(undefined); }} onKeyDown={(event) => { if (event.key === "Enter") continueFromSchoolUrl(); }} placeholder="https://学校教务系统登录网址" /></span>
@@ -309,13 +352,15 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
           </div>}
 
           {step === 2 && <div className="login-stage">
-            <div className="browser-preview"><div className="browser-bar"><i/><i/><i/><span><Icon name="shield" />{school.domain ?? "学校官方教务网站"}</span></div><div className="browser-content"><span className="large-school-icon"><Icon name="school" /></span><h3>{school.name}</h3><p>{loginState === "connected" ? "官方登录会话已建立，密码从未经过课织界面。" : loginState === "opening" || loginState === "checking" ? embeddedLogin ? "请在学校页面登录，然后点击顶部醒目的“登录完成，导入课表”。" : "请在独立窗口完成登录，再返回课织检查状态。" : loginCapable ? embeddedLogin ? "将打开应用内学校官方登录页，登录后可一键导入。" : "登录将在独立的内置浏览器窗口中进行。" : "保存账号后，可以继续从备份导入或手动添加课程。"}</p>{loginState === "connected" && <span className="connected-badge"><Icon name="check" />已安全连接</span>}</div></div>
+            <div className="browser-preview"><div className="browser-bar"><i/><i/><i/><span><Icon name="shield" />{school.domain ?? "学校官方教务网站"}</span></div><div className="browser-content"><span className="large-school-icon"><Icon name="school" /></span><h3>{school.name}</h3><p>{loginState === "connected" ? "官方登录会话已建立，已保存凭据仍由系统保险库保护。" : loginState === "opening" || loginState === "checking" ? embeddedLogin ? "请在学校页面确认已填充信息，然后点击登录。" : "请在独立窗口确认已填充信息并登录，再返回课织检查状态。" : loginCapable ? embeddedLogin ? "将打开应用内学校官方登录页，并自动填充已保存账号密码。" : "登录将在独立的内置浏览器窗口中进行，并自动填充已保存凭据。" : "保存账号后，可以继续从备份导入或手动添加课程。"}</p>{loginState === "connected" && <span className="connected-badge"><Icon name="check" />已安全连接</span>}</div></div>
             <div className="login-side">
-              <label className="account-session-field"><span>本地账号</span><select value={selectedAccountId} disabled={loginState !== "idle"} onChange={(event) => setSelectedAccountId(event.target.value)}>{schoolAccounts.map((account) => <option value={account.id} key={account.id}>{account.label}</option>)}<option value="new">＋ 新账号</option></select></label>
+              <label className="account-session-field"><span>本地账号</span><select value={selectedAccountId} disabled={loginState !== "idle"} onChange={(event) => { setSelectedAccountId(event.target.value); setLoginError(undefined); }}>{schoolAccounts.map((account) => <option value={account.id} key={account.id}>{account.label}</option>)}<option value="new">＋ 新账号</option></select></label>
               {selectedAccountId !== "new" && <div className="saved-account-name">已保存账号：{schoolAccounts.find((account) => account.id === selectedAccountId)?.loginName || "旧版账号未记录学号"}</div>}
-              {selectedAccountId === "new" && <label className="account-session-field"><span>学号 / 登录账号</span><input value={loginName} disabled={loginState !== "idle"} maxLength={80} autoCapitalize="none" autoCorrect="off" onChange={(event) => setLoginName(event.target.value)} placeholder="仅保存在本机" /><small>用于识别和切换账号，不会自动填写密码</small></label>}
+              {selectedAccountId === "new" && <label className="account-session-field"><span>学号 / 登录账号</span><input value={loginName} disabled={loginState !== "idle"} maxLength={80} autoCapitalize="none" autoCorrect="off" onChange={(event) => setLoginName(event.target.value)} placeholder="仅保存在本机" /><small>用于识别、切换账号和登录页自动填充</small></label>}
               {selectedAccountId === "new" && <label className="account-session-field"><span>账号备注</span><input value={accountLabel} disabled={loginState !== "idle"} maxLength={40} onChange={(event) => setAccountLabel(event.target.value)} placeholder={`账号 ${schoolAccounts.length + 1}`} /><small>例如“主账号”或“辅修账号”</small></label>}
-              <div className="security-copy"><Icon name="shield" /><div><strong>密码只输入在学校官方页面</strong><span>课织不创建密码输入框、不保存明文密码。账号标识和备注保存在本机 SQLite；登录会话不会传给界面层。</span></div></div>
+              {loginCapable && <label className="account-session-field credential-password-field"><span>登录密码</span><input type="password" value={password} disabled={loginState !== "idle"} maxLength={256} autoComplete="current-password" onChange={(event) => { setPassword(event.target.value); setRememberPassword(true); }} placeholder={credentialChecking ? "正在检查系统保险库…" : credentialSaved ? "已安全保存；留空则保持原密码" : "输入后保存到系统保险库"} /><small>密码不会写入 SQLite、JSON 备份或 Git</small></label>}
+              {loginCapable && <div className="credential-actions"><label><input type="checkbox" checked={rememberPassword} disabled={loginState !== "idle"} onChange={(event) => setRememberPassword(event.target.checked)} /><span><strong>自动保存并填充</strong><small>{credentialSaved ? "系统保险库中已有凭据" : "仅保存在当前设备的安全区域"}</small></span></label>{credentialSaved && <button type="button" disabled={loginState !== "idle"} onClick={() => void removeSavedCredential()}>删除已保存密码</button>}</div>}
+              <div className="security-copy"><Icon name="shield" /><div><strong>系统级安全存储</strong><span>Windows 使用 Credential Manager；Android 使用 Keystore AES-GCM。打开学校官网时只填充账号密码，不会自动点击登录或提交其他表单。</span></div></div>
               {!loginCapable && <div className="runtime-warning"><Icon name="warning" />当前环境暂不读取学校登录会话，保存后仍可继续导入</div>}
               {loginError && <div className="form-error login-error"><Icon name="warning" />{loginError}</div>}
             </div>
@@ -358,7 +403,7 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
           </div>}
 
           {step === 4 && adapterResult && <div className="import-review"><div className="review-summary"><span><strong>{adapterResult.courses.length}</strong><small>课程记录</small></span><span><strong>{new Set(adapterResult.courses.map((course) => course.title)).size}</strong><small>不同课程</small></span><span><strong>{adapterResult.warnings.length}</strong><small>解析提醒</small></span></div><div className="review-success"><Icon name="check" /><div><strong>已读取真实教务数据</strong><span>共检查 {adapterResult.sourceRows} 条学校记录，已识别星期、节次和周次规则{weekOffsetApplied > 0 ? `，并按大一校历将周次前移 ${weekOffsetApplied} 周` : ""}。</span></div></div>{adapterResult.warnings.length > 0 && <div className="review-warning"><Icon name="warning" /><div><strong>{adapterResult.warnings.length} 项记录被跳过</strong><span>{adapterResult.warnings[0]}</span></div></div>}<label className="import-option"><input type="checkbox" checked={keepLocal} onChange={(event) => setKeepLocal(event.target.checked)} /><span><strong>保留本地课程</strong><small>关闭后将使用本次读取的学校课表替换当前课程</small></span></label></div>}
-        </div>
+        </MotionRegion>
 
         <footer className="dialog-footer wizard-footer">
           <button className="cancel-button" onClick={goBack}>{step > 1 ? "上一步" : "取消"}</button>
@@ -372,7 +417,6 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
           {step === 3 && !manualImportFlow && activeAccount && <button className="primary-button" disabled={analyzing || academicYear < 2000 || academicYear > 2100} onClick={() => void readSchedule()}>{analyzing ? "读取中…" : "读取课表"}</button>}
           {step === 4 && activeAccount && adapterResult && <button className="primary-button" onClick={() => onImported(school, activeAccount, adapterResult.courses, keepLocal, { academicYear, semester, studentGrade, termStartsOn, teachingStartsOn })}>确认导入</button>}
         </footer>
-      </section>
-    </div>
+    </DialogSurface>
   );
 });

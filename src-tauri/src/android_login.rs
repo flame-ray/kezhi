@@ -15,6 +15,7 @@ pub(crate) struct AndroidSchoolLogin<R: Runtime>(PluginHandle<R>);
 pub(crate) struct OpenRequest<'a> {
     pub(crate) url: &'a str,
     pub(crate) allowed_host: &'a str,
+    pub(crate) school_id: &'a str,
     pub(crate) account_id: &'a str,
     pub(crate) mode: &'a str,
 }
@@ -36,6 +37,28 @@ pub(crate) struct NativeLoginStatus {
     pub(crate) page_snapshot: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CredentialKeyRequest<'a> {
+    pub(crate) school_id: &'a str,
+    pub(crate) account_id: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SaveCredentialRequest<'a> {
+    pub(crate) school_id: &'a str,
+    pub(crate) account_id: &'a str,
+    pub(crate) username: &'a str,
+    pub(crate) password: &'a str,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct NativeCredentialStatus {
+    pub(crate) saved: bool,
+}
+
 impl<R: Runtime> AndroidSchoolLogin<R> {
     pub(crate) fn open(&self, request: OpenRequest<'_>) -> Result<(), String> {
         self.0
@@ -52,6 +75,30 @@ impl<R: Runtime> AndroidSchoolLogin<R> {
     pub(crate) fn close(&self) -> Result<(), String> {
         self.0
             .run_mobile_plugin::<()>("close", ())
+            .map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn save_credential(&self, request: SaveCredentialRequest<'_>) -> Result<(), String> {
+        self.0
+            .run_mobile_plugin::<()>("saveCredential", request)
+            .map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn credential_status(
+        &self,
+        request: CredentialKeyRequest<'_>,
+    ) -> Result<NativeCredentialStatus, String> {
+        self.0
+            .run_mobile_plugin("credentialStatus", request)
+            .map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn delete_credential(
+        &self,
+        request: CredentialKeyRequest<'_>,
+    ) -> Result<(), String> {
+        self.0
+            .run_mobile_plugin::<()>("deleteCredential", request)
             .map_err(|error| error.to_string())
     }
 }

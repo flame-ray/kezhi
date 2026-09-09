@@ -8,6 +8,10 @@ export default defineConfig({
     host: "127.0.0.1",
     port: 1420,
     strictPort: true,
+    watch: {
+      // Native build outputs can be locked by the Windows linker.
+      ignored: ["**/src-tauri/**", "**/*.apk", "**/*.apk.idsig"],
+    },
   },
   envPrefix: ["VITE_", "TAURI_"],
   build: {

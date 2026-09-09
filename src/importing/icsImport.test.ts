@@ -39,4 +39,9 @@ describe("ICS calendar import", () => {
   it("rejects files that are not ICS calendars", () => {
     expect(() => parseIcsSchedule("hello", { preset: defaultPresets[0] })).toThrow("ICS");
   });
+
+  it("rejects calendar dates that overflow into another month", () => {
+    const invalid = calendar.replaceAll("20260914", "20260231");
+    expect(() => parseIcsSchedule(invalid, { preset: defaultPresets[0] })).toThrow("没有识别到");
+  });
 });

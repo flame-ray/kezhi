@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CourseDetails } from "./components/CourseDetails";
 import { CourseEditorDialog, type CourseDraftSlot } from "./components/CourseEditorDialog";
 import { CalendarImportDialog } from "./components/CalendarImportDialog";
@@ -17,27 +17,42 @@ import { WeekCalendar } from "./components/WeekCalendar";
 import { defaultPresets } from "./data/demo";
 import { alignImportedWeeks, normalizeAcademicCalendar, resolveAcademicCalendar, suggestAcademicCalendar } from "./domain/academicCalendar";
 import { academicPositionForDate } from "./domain/dayAgenda";
-import type { CourseMeeting, DayOfWeek, ScheduleSnapshot, TimetablePreset } from "./domain/schedule";
+import { MAX_ACADEMIC_WEEK, MIN_ACADEMIC_WEEK, type CourseMeeting, type DayOfWeek, type ScheduleSnapshot, type TimetablePreset } from "./domain/schedule";
 import { mergeGrades, normalizeGrades, type GradeRecord } from "./grades/gradeCenter";
 import { activePreset, buildWeekView, formatWeekRange, moveMeeting } from "./domain/scheduleEngine";
+import { validateTimetablePreset } from "./domain/timetable";
 import { DEFAULT_TEACHING_START_KEY, DEFAULT_TERM_START_KEY, normalizeTeachingStartKey, normalizeTermStartKey } from "./domain/termDate";
 import { parseZhengfangSchedule } from "./importing/zhengfangAdapter";
 import { mergeIcsCourses } from "./importing/icsImport";
 import { resolveSchoolLoginUrl } from "./importing/schoolCatalog";
 import { resolveAppBackDestination } from "./navigation/backNavigation";
 import { installAndroidBackHandler } from "./platform/androidBack";
-import { fetchPortalResource, fetchSchoolSchedule, getSchoolLoginStatus, isTauriRuntime, loadScheduleSnapshot, openSchoolLogin, prepareSchoolSession, readPortalPageSnapshot, saveScheduleSnapshot, type SchoolLoginRequest } from "./platform/tauriBridge";
+import { fetchPortalResource, fetchSchoolSchedule, getSchoolLoginStatus, isTauriRuntime, loadScheduleSnapshot, openSchoolLogin, prepareSchoolSession, probePortalClock, readPortalPageSnapshot, saveScheduleSnapshot, submitPortalRequest, type SchoolLoginRequest } from "./platform/tauriBridge";
 import { clearScheduledCourseNotifications, clearScheduledSelectionNotifications, ensureNotificationPermission, replaceScheduledCourseNotifications, replaceScheduledSelectionNotifications, sendReminderTestNotification } from "./platform/notifications";
 import { getRuntimeCapabilities } from "./platform/runtime";
 import { buildReminderSchedule, normalizeReminderSettings } from "./reminders/reminderSchedule";
 import { applySeatPayload, expireSelectionSchedule, markSelectionScheduleTriggered, nextMonitorDelaySeconds, normalizeSelectionAssistant, recordMonitorFailure, selectionSchedulePhase } from "./selection/selectionAssistant";
+import { defaultAutoGrabConfig, emptyGrabRun, renderSubmitBody, type GrabRunState } from "./selection/autoGrab";
+import { startAutoGrab, type GrabRunnerHandle, type GrabTransport } from "./selection/autoGrabRunner";
+import { calibrateClock, formatSkew, type ClockProbeResult } from "./selection/clockSync";
 import { applyScheduleSyncPlan, createScheduleSyncPlan, type ScheduleSyncPlan, type SyncChoice } from "./sync/scheduleSync";
 import { Icon } from "./ui/Icon";
+import { MotionRegion, Presence } from "./ui/Motion";
+import { InteractionFeedback, Snackbar } from "./ui/Feedback";
 
 const STORAGE_KEY = "kezhi.schedule.prototype.v2";
 const THEME_KEY = "kezhi.appearance.theme";
 function normalizeSnapshot(snapshot: ScheduleSnapshot): ScheduleSnapshot {
   return { ...snapshot, ...normalizeAcademicCalendar(snapshot), reminderSettings: normalizeReminderSettings(snapshot.reminderSettings), selectionAssistant: normalizeSelectionAssistant(snapshot.selectionAssistant), grades: normalizeGrades(snapshot.grades) };
+}
+
+function saveCompatibilitySnapshot(snapshot: ScheduleSnapshot): boolean {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+    return true;
+  } catch {
+    return false;
+  }
 }
 type AppTheme = "light" | "dark";
 type PrimaryPage = "课表" | "今天" | "选课" | "成绩";
@@ -85,6 +100,9 @@ export function App() {
   const reminderSyncQueue = useRef<Promise<void>>(Promise.resolve());
   const selectionMonitorInFlight = useRef(false);
   const selectionScheduleNotificationRef = useRef("");
+  const autoGrabHandleRef = useRef<GrabRunnerHandle | undefined>(undefined);
+  const autoGrabArmedRef = useRef("");
+  const [grabRun, setGrabRun] = useState<GrabRunState>(() => emptyGrabRun());
   const [scheduledReminderCount, setScheduledReminderCount] = useState(0);
   const importWizardRef = useRef<ImportWizardHandle>(null);
   const appBackHandlerRef = useRef<() => void>(() => undefined);
@@ -93,12 +111,12 @@ export function App() {
   const calendar = useMemo(() => resolveAcademicCalendar(normalizeAcademicCalendar(snapshot)), [snapshot.schoolId, snapshot.academicYear, snapshot.semester, snapshot.studentGrade, snapshot.termStartsOn, snapshot.teachingStartsOn]);
   const view = useMemo(() => buildWeekView(snapshot.courses, calendar, week), [snapshot.courses, calendar, week]);
   const preset = activePreset(snapshot);
-  const previousView = useMemo(() => buildWeekView(snapshot.courses, calendar, Math.max(1, week - 1)), [snapshot.courses, calendar, week]);
-  const nextView = useMemo(() => buildWeekView(snapshot.courses, calendar, Math.min(24, week + 1)), [snapshot.courses, calendar, week]);
+  const previousView = useMemo(() => buildWeekView(snapshot.courses, calendar, Math.max(MIN_ACADEMIC_WEEK, week - 1)), [snapshot.courses, calendar, week]);
+  const nextView = useMemo(() => buildWeekView(snapshot.courses, calendar, Math.min(MAX_ACADEMIC_WEEK, week + 1)), [snapshot.courses, calendar, week]);
   const selected = snapshot.courses.find((course) => course.id === selectedId);
   const selectionAssistant = normalizeSelectionAssistant(snapshot.selectionAssistant);
   const grades = normalizeGrades(snapshot.grades);
-  const currentAcademicWeek = Math.min(24, Math.max(1, academicPositionForDate(new Date(), calendar).week));
+  const currentAcademicWeek = Math.min(MAX_ACADEMIC_WEEK, Math.max(MIN_ACADEMIC_WEEK, academicPositionForDate(new Date(), calendar).week));
   const reminderSettings = normalizeReminderSettings(snapshot.reminderSettings);
   const hasCourses = snapshot.courses.length > 0;
   const isLocalSchedule = snapshot.schoolName === "本地课表";
@@ -200,12 +218,14 @@ export function App() {
     const timeout = window.setTimeout(() => {
       if (storageBackend === "sqlite") {
         void saveScheduleSnapshot(snapshot).catch((error) => {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+          const fallbackSaved = saveCompatibilitySnapshot(snapshot);
           setStorageBackend("local");
-          setToast(`SQLite 保存失败，已切换兼容存储：${error instanceof Error ? error.message : String(error)}`);
+          setToast(fallbackSaved
+            ? `SQLite 保存失败，已切换兼容存储：${error instanceof Error ? error.message : String(error)}`
+            : `本地保存失败，请立即导出备份：${error instanceof Error ? error.message : String(error)}`);
         });
       } else {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+        if (!saveCompatibilitySnapshot(snapshot)) setToast("本地保存失败，请立即导出 JSON 备份");
       }
     }, 220);
     return () => window.clearTimeout(timeout);
@@ -246,13 +266,13 @@ export function App() {
   }, [calendar, capabilities.native, preset, reminderSettings.enabled, reminderSettings.defaultMinutes, snapshot.courses, storageBackend]);
 
   const changeWeek = (next: number) => {
-    const safeWeek = Math.min(24, Math.max(1, next));
+    const safeWeek = Math.min(MAX_ACADEMIC_WEEK, Math.max(MIN_ACADEMIC_WEEK, next));
     setWeek(safeWeek);
     setSelectedId(undefined);
   };
 
   const handleMove = (id: string, day: DayOfWeek, period: number) => {
-    setSnapshot((current) => ({ ...current, courses: moveMeeting(current.courses, id, day, period) }));
+    setSnapshot((current) => ({ ...current, courses: moveMeeting(current.courses, id, day, period, preset.periods.length) }));
     setSelectedId(id);
     setToast("课程已移动 · 下次同步时会询问如何合并");
   };
@@ -386,9 +406,15 @@ export function App() {
   };
 
   const updatePreset = (next: TimetablePreset) => {
+    const normalized = { ...next, name: next.name.trim() || "未命名作息" };
+    const validationError = validateTimetablePreset(normalized);
+    if (validationError) {
+      setToast(validationError);
+      return;
+    }
     setSnapshot((current) => ({
       ...current,
-      presets: current.presets.map((presetItem) => presetItem.id === next.id ? next : presetItem),
+      presets: current.presets.map((presetItem) => presetItem.id === normalized.id ? normalized : presetItem),
     }));
   };
 
@@ -467,6 +493,146 @@ export function App() {
     const payload = await fetchPortalResource({ ...portalRequest(portalUrl), endpointUrl });
     return payload.body;
   };
+
+  const grabClockEndpoint = useCallback(() => selectionAssistant.adapter?.monitorEndpoint
+    ?? selectionAssistant.adapter?.entryUrl
+    ?? selectionAssistant.portalUrl, [selectionAssistant.adapter?.entryUrl, selectionAssistant.adapter?.monitorEndpoint, selectionAssistant.portalUrl]);
+
+  const handleGrabRun = useCallback((next: GrabRunState) => {
+    setGrabRun(next);
+    const terminal = next.status === "done" || next.status === "stopped";
+    if (!terminal && !next.successIds.length) return;
+    setSnapshot((current) => {
+      const assistant = normalizeSelectionAssistant(current.selectionAssistant);
+      const changed = next.successIds.filter((id) => assistant.targets.some((target) => target.id === id && target.status !== "submitted"));
+      const shouldDisarm = terminal && assistant.autoGrab?.enabled;
+      if (!changed.length && !shouldDisarm) return current;
+      return {
+        ...current,
+        selectionAssistant: {
+          ...assistant,
+          targets: assistant.targets.map((target) => changed.includes(target.id) ? { ...target, status: "submitted" as const, lastMessage: "已自动抢到" } : target),
+          autoGrab: shouldDisarm && assistant.autoGrab
+            ? { ...assistant.autoGrab, enabled: false }
+            : assistant.autoGrab,
+        },
+      };
+    });
+  }, []);
+
+  const grabTransport = useMemo<GrabTransport>(() => ({
+    submit: async (target, template) => {
+      const payload = await submitPortalRequest({
+        ...portalRequest(selectionAssistant.portalUrl),
+        endpointUrl: template.endpointUrl,
+        method: template.method,
+        body: renderSubmitBody(template, target),
+        contentType: template.contentType,
+      });
+      return { status: payload.status, body: payload.body };
+    },
+    probeClock: async () => {
+      const result = await probePortalClock({ ...portalRequest(selectionAssistant.portalUrl), endpointUrl: grabClockEndpoint() });
+      return {
+        sentAt: result.localSentAt,
+        receivedAt: result.localReceivedAt,
+        serverTimeMs: result.serverDate ? Date.parse(result.serverDate) : undefined,
+      };
+    },
+    prewarm: async () => {
+      await prepareSchoolSession(portalRequest(selectionAssistant.portalUrl));
+    },
+  }), [grabClockEndpoint, selectionAssistant.portalUrl, snapshot.accountId]);
+
+  const startAutoGrabRun = useCallback((immediate: boolean) => {
+    if (!capabilities.native) {
+      setToast("自动抢课需要 Windows 或 Android 原生版");
+      return;
+    }
+    const assistant = normalizeSelectionAssistant(snapshot.selectionAssistant);
+    const config = assistant.autoGrab;
+    if (!config?.template?.endpointUrl) {
+      setToast("请先在第 5 步填写提交接口地址和参数模板");
+      return;
+    }
+    if (!immediate && !config.startsAt) {
+      setToast("请先设置开抢时间");
+      return;
+    }
+    if (!assistant.targets.length) {
+      setToast("请先添加要抢的课程");
+      return;
+    }
+    autoGrabHandleRef.current?.stop();
+    setGrabRun(emptyGrabRun(config.clockOffsetMs));
+    setSnapshot((current) => ({
+      ...current,
+      selectionAssistant: { ...normalizeSelectionAssistant(current.selectionAssistant), autoGrab: { ...config, enabled: !immediate } },
+    }));
+    autoGrabHandleRef.current = startAutoGrab({
+      config,
+      targets: assistant.targets,
+      transport: grabTransport,
+      onRun: handleGrabRun,
+      onNotice: setToast,
+      immediate,
+    });
+    setToast(immediate
+      ? "正在立即试跑；本次会向学校提交真实选课请求，但不会保存为定时任务"
+      : "自动抢课已部署，到点会自动提交；请保持应用在前台运行");
+  }, [capabilities.native, grabTransport, handleGrabRun, snapshot.selectionAssistant]);
+
+  const stopAutoGrabRun = useCallback(() => {
+    autoGrabHandleRef.current?.stop("已手动停止");
+    autoGrabHandleRef.current = undefined;
+    setSnapshot((current) => {
+      const assistant = normalizeSelectionAssistant(current.selectionAssistant);
+      if (!assistant.autoGrab?.enabled) return current;
+      return { ...current, selectionAssistant: { ...assistant, autoGrab: { ...assistant.autoGrab, enabled: false } } };
+    });
+  }, []);
+
+  const calibrateGrabClock = useCallback(async () => {
+    if (!capabilities.native) {
+      setToast("校时需要 Windows 或 Android 原生版");
+      return;
+    }
+    try {
+      const samples: ClockProbeResult[] = [];
+      for (let index = 0; index < 3; index += 1) {
+        const result = await probePortalClock({ ...portalRequest(selectionAssistant.portalUrl), endpointUrl: grabClockEndpoint() });
+        samples.push({
+          sentAt: result.localSentAt,
+          receivedAt: result.localReceivedAt,
+          serverTimeMs: result.serverDate ? Date.parse(result.serverDate) : undefined,
+        });
+        if (index < 2) await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+      const calibration = calibrateClock(samples);
+      if (calibration.source !== "server-date") {
+        setToast("没能读到学校服务器时间，请先在原生版里登录并打开选课页");
+        return;
+      }
+      setSnapshot((current) => {
+        const assistant = normalizeSelectionAssistant(current.selectionAssistant);
+        return {
+          ...current,
+          selectionAssistant: {
+            ...assistant,
+            autoGrab: {
+              ...(assistant.autoGrab ?? defaultAutoGrabConfig()),
+              clockOffsetMs: calibration.offsetMs,
+              clockCalibratedAt: calibration.calibratedAt,
+              autoCalibrate: true,
+            },
+          },
+        };
+      });
+      setToast(`已按学校服务器时间校准：${formatSkew(calibration.offsetMs)}（往返 ${calibration.rttMs} 毫秒）`);
+    } catch (error) {
+      setToast(`校时失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [capabilities.native, grabClockEndpoint, selectionAssistant.portalUrl]);
 
   useEffect(() => {
     const assistant = selectionAssistant;
@@ -562,6 +728,22 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [capabilities.native, selectionAssistant.schedule?.startsAt, selectionAssistant.schedule?.status]);
 
+  // 应用重启后仍然记得已经部署过的抢课任务，只要时间还没过就自动重新武装。
+  useEffect(() => {
+    if (!capabilities.native) return;
+    const config = selectionAssistant.autoGrab;
+    if (!config?.enabled || !config.startsAt || !config.template?.endpointUrl) return;
+    if (Date.parse(config.startsAt) < Date.now() - 5 * 60_000) return;
+    const signature = `${config.startsAt}:${config.prewarmMinutes}:${config.template.endpointUrl}`;
+    if (autoGrabArmedRef.current === signature) return;
+    autoGrabArmedRef.current = signature;
+    startAutoGrabRun(false);
+    // The runner owns its own timers after deployment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capabilities.native, selectionAssistant.autoGrab?.enabled, selectionAssistant.autoGrab?.startsAt, selectionAssistant.autoGrab?.prewarmMinutes, selectionAssistant.autoGrab?.template?.endpointUrl]);
+
+  useEffect(() => () => autoGrabHandleRef.current?.stop(), []);
+
   const saveGrade = (grade: GradeRecord) => {
     setSnapshot((current) => ({ ...current, grades: mergeGrades(normalizeGrades(current.grades), [grade]) }));
     setEditingGrade(undefined);
@@ -581,6 +763,7 @@ export function App() {
 
   return (
     <div className="app-shell">
+      <InteractionFeedback />
 
       <Sidebar
         active={settingsOpen ? "设置" : activePage}
@@ -613,6 +796,7 @@ export function App() {
           </div>
         </header>
 
+        <MotionRegion className="page-transition" motionKey={activePage}>
         {activePage === "课表" ? (
           <div className="view-stage schedule-view-stage" key="schedule">
             <section className="calendar-toolbar">
@@ -637,7 +821,7 @@ export function App() {
                   preset={preset}
                   selectedId={selectedId}
                   canGoPrevious={week > 1}
-                  canGoNext={week < 24}
+                  canGoNext={week < MAX_ACADEMIC_WEEK}
                   onSelect={(meeting: CourseMeeting) => setSelectedId(meeting.id)}
                   onMove={handleMove}
                   onCreate={(day, startPeriod) => openNewCourse({ day, startPeriod })}
@@ -660,10 +844,14 @@ export function App() {
           <SelectionAssistantPage
             state={selectionAssistant}
             nativeAvailable={capabilities.native}
+            run={grabRun}
             onChange={(next) => setSnapshot((current) => ({ ...current, selectionAssistant: next }))}
             onOpenPortal={openSelectionPortal}
             onReadPortal={readSelectionPortal}
             onFetchResource={fetchSelectionResource}
+            onStartAutoGrab={startAutoGrabRun}
+            onStopAutoGrab={stopAutoGrabRun}
+            onCalibrateClock={calibrateGrabClock}
             onToast={setToast}
           />
         ) : (
@@ -676,10 +864,13 @@ export function App() {
             onToast={setToast}
           />
         )}
+        </MotionRegion>
       </main>
 
+      <Presence>
       {settingsOpen && (
         <SettingsDialog
+          onOpenExport={() => { setSettingsOpen(false); setExportOpen(true); }}
           settings={reminderSettings}
           scheduledCount={scheduledReminderCount}
           nativeNotifications={capabilities.native}
@@ -689,7 +880,9 @@ export function App() {
           onClose={() => setSettingsOpen(false)}
         />
       )}
+      </Presence>
 
+      <Presence>
       {timetableOpen && (
         <TimetableDialog
           presets={snapshot.presets}
@@ -720,7 +913,9 @@ export function App() {
           onClose={() => setTimetableOpen(false)}
         />
       )}
+      </Presence>
 
+      <Presence>
       {editingCourse && (
         <CourseEditorDialog
           meeting={editingCourse === "new" ? undefined : editingCourse}
@@ -734,7 +929,9 @@ export function App() {
           }}
         />
       )}
+      </Presence>
 
+      <Presence>
       {editingGrade && (
         <GradeEditorDialog
           grade={editingGrade === "new" ? undefined : editingGrade}
@@ -745,7 +942,9 @@ export function App() {
           onClose={() => setEditingGrade(undefined)}
         />
       )}
+      </Presence>
 
+      <Presence>
       {importOpen && (
         <ImportWizard
           ref={importWizardRef}
@@ -776,7 +975,9 @@ export function App() {
           }}
         />
       )}
+      </Presence>
 
+      <Presence>
       {calendarImportOpen && (
         <CalendarImportDialog
           preset={preset}
@@ -802,8 +1003,9 @@ export function App() {
           }}
         />
       )}
+      </Presence>
 
-      {exportOpen && (
+      <Presence>{exportOpen && (
         <ExportDialog
           snapshot={snapshot}
           preset={preset}
@@ -813,14 +1015,15 @@ export function App() {
           onExported={(message) => setToast(message)}
           onPrint={() => {
             setExportOpen(false);
-            window.setTimeout(() => window.print(), 80);
+            window.setTimeout(() => window.print(), 240);
           }}
         />
       )}
 
-      {syncPlan && <SyncReviewDialog plan={syncPlan} onClose={() => setSyncPlan(undefined)} onApply={applySyncChoices} />}
+      </Presence>
+      <Presence>{syncPlan && <SyncReviewDialog plan={syncPlan} onClose={() => setSyncPlan(undefined)} onApply={applySyncChoices} />}</Presence>
 
-      {toast && <div className="toast" role="status"><span>{toast}</span><button onClick={() => setToast(undefined)}><Icon name="close" /></button></div>}
+      <Presence>{toast && <Snackbar message={toast} onClose={() => setToast(undefined)} />}</Presence>
     </div>
   );
 }

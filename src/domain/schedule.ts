@@ -1,6 +1,9 @@
 export type DayOfWeek = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 export type StudentGrade = 1 | 2 | 3 | 4 | 5;
 
+export const MIN_ACADEMIC_WEEK = 1;
+export const MAX_ACADEMIC_WEEK = 30;
+
 export type CourseStatus = "normal" | "changed" | "cancelled";
 
 export interface CourseMeeting {

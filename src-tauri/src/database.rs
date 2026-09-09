@@ -668,11 +668,13 @@ fn validate_snapshot(snapshot: &ScheduleSnapshot) -> Result<(), String> {
             return Err("作息方案格式无效".into());
         }
         let mut period_ids = HashSet::new();
-        for period in &preset.periods {
+        for (position, period) in preset.periods.iter().enumerate() {
             if !period_ids.insert(period.index)
+                || period.index as usize != position + 1
                 || !(1..=30).contains(&period.index)
                 || !valid_time(&period.start)
                 || !valid_time(&period.end)
+                || time_minutes(&period.start) >= time_minutes(&period.end)
             {
                 return Err(format!("作息方案“{}”的节次无效", preset.name));
             }
@@ -714,6 +716,11 @@ fn valid_time(value: &str) -> bool {
         && minutes.len() == 2
         && hours.parse::<u8>().is_ok_and(|number| number <= 23)
         && minutes.parse::<u8>().is_ok_and(|number| number <= 59)
+}
+
+fn time_minutes(value: &str) -> Option<u16> {
+    let (hours, minutes) = value.split_once(':')?;
+    Some(hours.parse::<u16>().ok()? * 60 + minutes.parse::<u16>().ok()?)
 }
 
 fn valid_date_key(value: &str) -> bool {

@@ -37,11 +37,13 @@ interface ImportWizardProps {
 
 type LoginState = "idle" | "opening" | "checking" | "connected";
 
+const initialSchool = schoolCatalog.find((item) => item.id === "zf-generic") ?? schoolCatalog[schoolCatalog.length - 1];
+
 export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(function ImportWizard({ activeAccountId, onImported, onRestore, onStartCalendarImport, onStartManual, onClose }, ref) {
   const [step, setStep] = useState(1);
-  const [schoolUrl, setSchoolUrl] = useState(schoolCatalog[0].loginUrl ?? "");
+  const [schoolUrl, setSchoolUrl] = useState("");
   const [urlError, setUrlError] = useState<string>();
-  const [school, setSchool] = useState<SchoolDefinition>(schoolCatalog[0]);
+  const [school, setSchool] = useState<SchoolDefinition>(initialSchool);
   const [accounts, setAccounts] = useState<LocalAccountProfile[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(true);
   const [selectedAccountId, setSelectedAccountId] = useState(activeAccountId ?? "new");
@@ -60,7 +62,7 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
   }, []);
   const [academicYear, setAcademicYear] = useState(initialAcademicYear);
   const [semester, setSemester] = useState<1 | 2>(1);
-  const initialCalendar = useMemo(() => suggestAcademicCalendar({ schoolId: schoolCatalog[0].id, academicYear: initialAcademicYear, semester: 1, studentGrade: 1 }), [initialAcademicYear]);
+  const initialCalendar = useMemo(() => suggestAcademicCalendar({ schoolId: initialSchool.id, academicYear: initialAcademicYear, semester: 1, studentGrade: 1 }), [initialAcademicYear]);
   const [studentGrade, setStudentGrade] = useState<StudentGrade>(initialCalendar.studentGrade);
   const [termStartsOn, setTermStartsOn] = useState(initialCalendar.termStartsOn);
   const [teachingStartsOn, setTeachingStartsOn] = useState(initialCalendar.teachingStartsOn);

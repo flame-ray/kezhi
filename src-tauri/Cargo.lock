@@ -2004,7 +2004,7 @@ dependencies = [
 
 [[package]]
 name = "kezhi"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "keyring-core",
  "reqwest 0.12.28",

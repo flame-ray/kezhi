@@ -17,6 +17,7 @@ const out = path.resolve("tmp/ui-maintenance"); fs.mkdirSync(out, {recursive:tru
   const state=()=>page.evaluate(()=>JSON.parse(localStorage.getItem("kezhi.schedule.prototype.v2")));
   const settings=async()=>{await page.getByRole("navigation",{name:"主导航"}).getByRole("button",{name:"设置",exact:true}).click();await settle();};
   await settings();
+  assert(await page.locator(".developer-contact").evaluate(element => element === element.parentElement.firstElementChild), "developer contact should be the first settings section");
   await page.evaluate(()=>Object.defineProperty(navigator,"clipboard",{configurable:true,value:{writeText:async value=>{window.copiedContact=value;}}}));
   await page.getByRole("button",{name:"复制邮箱",exact:true}).click();
   assert.equal(await page.evaluate(()=>window.copiedContact),"rayflame1949@outlook.com");

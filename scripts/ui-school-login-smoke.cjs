@@ -25,7 +25,10 @@ const collector = fs.readFileSync("src-tauri/gen/android/app/src/main/assets/kez
     const openWizard = async () => {
       await page.goto(base + "/scripts/ui-fixtures.html");
       await page.getByRole("button", { name: "测试导入流程", exact: true }).click();
-      await page.locator('input[type="url"]').fill("https://jw.example.edu.cn/login");
+      const schoolUrl = page.locator('input[type="url"]');
+      assert.equal(await schoolUrl.inputValue(), "", "the import wizard must not default to any school");
+      assert(await page.getByRole("button", { name: "继续", exact: true }).isDisabled(), "blank school URL must not continue");
+      await schoolUrl.fill("https://jw.example.edu.cn/login");
       await page.getByRole("button", { name: "继续", exact: true }).click();
       await page.getByRole("button", { name: "进入学校登录", exact: true }).waitFor();
     };

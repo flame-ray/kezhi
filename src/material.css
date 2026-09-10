@@ -594,8 +594,12 @@ button:disabled:hover { transform: none; }
 .phone-calendar-preview ol { padding: 0; margin: 0; list-style: none; display: grid; gap: 10px; max-height: 300px; overflow-y: auto; overscroll-behavior: contain; }
 .phone-calendar-preview li { padding: 12px; background: var(--surface); border-radius: 14px; overflow-wrap: anywhere; }
 .phone-calendar-preview li :is(strong,span,small) { display: block; font-size: 12px; line-height: 1.6; }
-.developer-contact { margin-top: 20px; padding: 18px; border-radius: 20px; background: var(--surface-soft); }
+.developer-contact { margin: 2px 0 16px; padding: 18px; border: 1px solid color-mix(in srgb,var(--primary) 24%,var(--outline)); border-radius: 22px; background: linear-gradient(145deg,color-mix(in srgb,var(--primary) 11%,var(--surface)),var(--surface-soft)); box-shadow: 0 8px 24px color-mix(in srgb,var(--primary) 9%,transparent); }
+.developer-contact-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+.developer-contact-heading > span:last-child { min-width: 0; }
+.developer-contact-heading .settings-icon { background: color-mix(in srgb,var(--primary) 18%,var(--surface)); color: var(--primary); }
 .developer-contact h3 { margin: 0 0 8px; font-size: 17px; font-weight: 500; }
+.developer-contact-heading p { margin: 0; }
 .developer-contact p,.developer-contact > small { font-size: 12px; line-height: 1.65; color: var(--muted); }
 .developer-contact-row { display: flex; align-items: center; gap: 12px; padding-block: 12px; }
 .developer-contact-row > span { flex: 1; min-width: 0; }

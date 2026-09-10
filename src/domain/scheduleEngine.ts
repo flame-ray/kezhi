@@ -25,7 +25,7 @@ export function buildWeekView(
         date,
         beforeTeaching: !isTeachingDate(calendar, date),
         inactiveMeetings: courses
-          .filter((course) => course.day === day && !course.weeks.includes(week))
+          .filter((course) => course.day === day && !course.weeks.includes(week) && !course.occurrence && !course.suppressedWeeks?.includes(week))
           .sort((a, b) => a.startPeriod - b.startPeriod),
         meetings: courses
           .filter((course) => course.day === day && course.weeks.includes(week))

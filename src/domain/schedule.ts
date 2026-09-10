@@ -22,6 +22,19 @@ export interface CourseMeeting {
   source?: "local" | "school";
   sourceKey?: string;
   reminderMinutes?: number;
+  /** Derived for display/export only; never replaces the stored recurring course. */
+  occurrence?: { courseId: string; originalDate: string; originalWeek: number; kind: "cancel" | "move"; marker?: boolean };
+  suppressedWeeks?: number[];
+}
+
+export interface CourseException {
+  courseId: string;
+  originalDate: string;
+  kind: "cancel" | "move";
+  targetDate?: string;
+  startPeriod?: number;
+  endPeriod?: number;
+  location?: string;
 }
 
 export type CourseColor =
@@ -78,6 +91,7 @@ export interface ScheduleSnapshot {
   reminderSettings?: ReminderSettings;
   selectionAssistant?: SelectionAssistantState;
   grades?: GradeRecord[];
+  courseExceptions?: CourseException[];
 }
 import type { GradeRecord } from "../grades/gradeCenter";
 import type { SelectionAssistantState } from "../selection/selectionAssistant";

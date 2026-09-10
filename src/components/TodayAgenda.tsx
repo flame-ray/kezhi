@@ -8,13 +8,13 @@ import { SwipePager } from "../ui/SwipePager";
 import { reducedMotion } from "../ui/Motion";
 
 const weekNames = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
-const stateLabels = { upcoming: "待上课", active: "上课中", finished: "已结束", scheduled: "已安排" } as const;
+const stateLabels = { upcoming: "待上课", active: "上课中", finished: "已结束", scheduled: "已安排", cancelled: "本次停课／已调走" } as const;
 
 interface TodayAgendaProps {
   courses: CourseMeeting[];
   preset: TimetablePreset;
   calendar: ResolvedAcademicCalendar;
-  onSelect: (course: CourseMeeting) => void;
+  onSelect: (course: CourseMeeting, date: Date) => void;
   onCreate: (day: DayOfWeek, period: number) => void;
   onOpenWeek: (week: number) => void;
 }
@@ -82,9 +82,9 @@ export function TodayAgenda({ courses, preset, calendar, onSelect, onCreate, onO
         const end = preset.periods.find((period) => period.index === course.endPeriod)?.end ?? `第${course.endPeriod}节`;
         const state = agendaCourseState(course, preset, date);
         const pattern = alternatingWeekLabel(course.weeks);
-        return <button className={`agenda-course color-${course.color} state-${state}`} key={course.id} onClick={() => onSelect(course)}>
+        return <button className={`agenda-course color-${course.color} state-${state}`} key={course.id} onClick={() => onSelect(course, date)}>
           <span className="agenda-time"><strong>{start}</strong><small>{end}</small></span><i className="agenda-line" />
-          <span className="agenda-course-copy"><small>{stateLabels[state]} · 第 {course.startPeriod}–{course.endPeriod} 节{pattern ? ` · ${pattern}` : ""}</small><strong>{course.title}</strong><span><Icon name="location" />{course.location}</span><span><Icon name="person" />{course.teacher}</span></span>
+          <span className="agenda-course-copy"><small>{state === "cancelled" ? (course.occurrence?.kind === "move" ? "本次已调走" : "本次停课") : course.occurrence ? "本次调课" : stateLabels[state]} · 第 {course.startPeriod}–{course.endPeriod} 节{pattern ? ` · ${pattern}` : ""}</small><strong>{course.title}</strong><span><Icon name="location" />{course.location}</span><span><Icon name="person" />{course.teacher}</span></span>
           <Icon name="chevron-right" />
         </button>;
       }) : <div className="today-empty"><span><Icon name="today" /></span><h3>{dayPosition.week < 1 || dayPosition.week > 30 ? "不在当前学期" : "这一天没有课程"}</h3><p>留一点时间，给课表之外的生活。</p><button className="primary-button" onClick={() => onCreate(dayPosition.day, 1)}><Icon name="plus" />添加课程</button></div>}
@@ -93,7 +93,7 @@ export function TodayAgenda({ courses, preset, calendar, onSelect, onCreate, onO
 
   return <section className="today-panel page-surface">
     <header className="today-hero">
-      <div><span className="eyebrow">{isToday ? "今天的安排" : weekNames[selectedDate.getDay()]}</span><h2>{formatLongDate(selectedDate)}</h2><p>{position.week >= 1 && position.week <= 30 ? `第 ${position.week} 周 · ${position.week % 2 ? "单周" : "双周"} · ${dayCourses.length} 门课程` : "当前日期不在本学期内"}</p></div>
+      <div><span className="eyebrow">{isToday ? "今天的安排" : weekNames[selectedDate.getDay()]}</span><h2>{formatLongDate(selectedDate)}</h2><p>{position.week >= 1 && position.week <= 30 ? `第 ${position.week} 周 · ${position.week % 2 ? "单周" : "双周"} · ${dayCourses.filter(course => course.status !== "cancelled").length} 门课程${dayCourses.some(course => course.status === "cancelled") ? " · 含停课／调走记录" : ""}` : "当前日期不在本学期内"}</p></div>
       <div className="today-hero-actions">
         {!isToday && <button className="soft-button" onClick={() => goToDate(new Date())}>回到今天</button>}
         {position.week >= 1 && position.week <= 30 && <button className="soft-button" onClick={() => onOpenWeek(position.week)}>周课表<Icon name="arrow-right" /></button>}

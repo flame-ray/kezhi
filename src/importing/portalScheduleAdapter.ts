@@ -1,14 +1,15 @@
 import type { CourseColor, CourseMeeting, DayOfWeek } from "../domain/schedule";
 import type { PortalPageSnapshot, PortalTableSignal } from "../selection/selectionAssistant";
-import { parseWeeks } from "./zhengfangAdapter";
+import { parseConfirmedPortalWeeks, type PortalWeekReview } from "./portalWeekReview";
 
-export interface PortalScheduleResult { courses: CourseMeeting[]; sourceRows: number; warnings: string[]; }
+export interface PortalScheduleResult { courses: CourseMeeting[]; weekReviews: PortalWeekReview[]; sourceRows: number; warnings: string[]; }
 const colors: CourseColor[] = ["blue", "teal", "coral", "violet", "rose", "amber", "indigo"];
 const dayWords = ["一", "二", "三", "四", "五", "六", "日"];
 
 /** 从登录后页面中的常见 HTML 课表矩阵读取课程。页面只在本机解析。 */
 export function parsePortalSchedule(snapshot: PortalPageSnapshot): PortalScheduleResult {
   const courses = new Map<string, CourseMeeting>();
+  const weekReviews = new Map<string, PortalWeekReview>();
   const warnings: string[] = [...(snapshot.warnings ?? [])];
   let sourceRows = 0;
   for (const table of snapshot.tables ?? []) {
@@ -28,14 +29,16 @@ export function parsePortalSchedule(snapshot: PortalPageSnapshot): PortalSchedul
         const lastPeriod = lastRow ? rowPeriod(lastRow, Math.min(...dayColumns.keys())) : undefined;
         const parsed = parseCell(raw, { ...period, endPeriod: lastPeriod?.endPeriod ?? period.endPeriod });
         if (!parsed) { warnings.push(`网页课表第 ${sourceRows} 行的${dayLabel(day)}课程格式无法识别`); continue; }
-        const identity = [snapshot.pageUrl, day, parsed.startPeriod, parsed.endPeriod, parsed.title, parsed.location, parsed.teacher, parsed.weeks.join(",")].join("|");
+        const identity = [snapshot.pageUrl, day, parsed.startPeriod, parsed.endPeriod, parsed.title, parsed.location, parsed.teacher, parsed.weeks.length ? parsed.weeks.join(",") : parsed.weekText].join("|");
         const id = `portal-${stableHash(identity).toString(36)}`;
-        courses.set(id, { id, courseCode: parsed.courseCode || "PORTAL-COURSE", title: parsed.title, teacher: parsed.teacher || "未设置教师", location: parsed.location || "未设置教室", day, startPeriod: parsed.startPeriod, endPeriod: parsed.endPeriod, weeks: parsed.weeks, color: colors[stableHash(parsed.title) % colors.length], status: "normal", source: "school", sourceKey: identity });
+        const course: Omit<CourseMeeting, "weeks"> = { id, courseCode: parsed.courseCode || "PORTAL-COURSE", title: parsed.title, teacher: parsed.teacher || "未设置教师", location: parsed.location || "未设置教室", day, startPeriod: parsed.startPeriod, endPeriod: parsed.endPeriod, color: colors[stableHash(parsed.title) % colors.length], status: "normal", source: "school", sourceKey: identity };
+        if (parsed.weeks.length) courses.set(id, { ...course, weeks: parsed.weeks });
+        else weekReviews.set(id, { course, sourceText: raw, parity: parsed.parity });
       }
     }
   }
-  if (!courses.size && (snapshot.tables?.length ?? 0) > 0) warnings.push("已读取网页表格，但没有找到带星期列的课程矩阵");
-  return { courses: [...courses.values()], sourceRows, warnings };
+  if (!courses.size && !weekReviews.size && (snapshot.tables?.length ?? 0) > 0) warnings.push("已读取网页表格，但没有找到带星期列和明确节次的课程矩阵");
+  return { courses: [...courses.values()], weekReviews: [...weekReviews.values()], sourceRows, warnings };
 }
 
 function findHeader(table: PortalTableSignal) {
@@ -56,9 +59,11 @@ function findDayColumns(header: string[]): Map<number, DayOfWeek> {
   const result = new Map<number, DayOfWeek>();
   header.forEach((value, index) => {
     const normalized = normalizeCell(value);
-    const numeric = Number.parseInt(normalized, 10);
-    if (numeric >= 1 && numeric <= 7 && /星期|周|[一二三四五六日]/.test(normalized)) result.set(index, numeric as DayOfWeek);
-    else { const found = dayWords.findIndex((day) => normalized.includes(`周${day}`) || normalized.includes(`星期${day}`) || normalized === day); if (found >= 0) result.set(index, (found + 1) as DayOfWeek); }
+    const label = normalized.match(/(?:星期|周)([一二三四五六日天1-7])/);
+    const word = label?.[1] ?? normalized;
+    const found = dayWords.indexOf(word === "天" ? "日" : word);
+    if (found >= 0) result.set(index, (found + 1) as DayOfWeek);
+    else if (label && /^[1-7]$/.test(word)) result.set(index, Number(word) as DayOfWeek);
   });
   return result;
 }
@@ -71,15 +76,17 @@ function parsePeriod(value: string): { startPeriod: number; endPeriod: number } 
 }
 function parseCell(raw: string, period: { startPeriod: number; endPeriod: number }) {
   const lines = raw.split(/[\n|；;]/).map((line) => line.trim()).filter(Boolean);
-  const title = lines.find((line) => !/(第?\d+[-~至]?\d*周|周[一二三四五六日]|星期|[0-9]{1,2}[:：][0-9]{2}|(讲|教)室|教师|老师|@)/.test(line))?.slice(0, 120) ?? lines[0]?.slice(0, 120);
+  const weekLines = lines.filter(line => /^(?:周次\s*[:：]?|第?\s*\d[^a-zA-Z]*周|[单双]周\s*$)/.test(line));
+  const title = lines.find(line => !weekLines.includes(line) && !/^(?:(?:周次|节次|教师|老师|授课教师|教室|讲室|上课地点|地点|课程编号)\s*[:：]|(?:教室|讲室)\s|@|周[一二三四五六日天]|星期)/.test(line) && !isTimeOnly(line))?.slice(0, 120);
   if (!title) return undefined;
-  const weeksText = lines.find((line) => /周/.test(line)) ?? raw;
-  const parsedWeeks = parseWeeks(weeksText);
-  const weeks = parsedWeeks.length ? parsedWeeks : /单周/.test(weeksText) ? Array.from({ length: 10 }, (_, index) => index * 2 + 1) : /双周/.test(weeksText) ? Array.from({ length: 10 }, (_, index) => (index + 1) * 2) : [];
-  const location = lines.find((line) => /(教室|讲室|楼|栋|室|@|校区|实验)/.test(line))?.replace(/^@/, "") ?? "";
-  const teacher = lines.find((line) => /(教师|老师|授课|\b[A-Za-z]{2,}\b)/.test(line) && line !== title && line !== location)?.replace(/^(教师|老师)[:：]?/, "") ?? "";
+  const weekText = weekLines.join(",");
+  // Parity alone does not identify the semester length. It remains a review requirement.
+  const parity = weekText.includes("单") && !weekText.includes("双") ? "odd" as const : weekText.includes("双") && !weekText.includes("单") ? "even" as const : undefined;
+  const weeks = parseConfirmedPortalWeeks(weekText);
+  const location = lines.find(line => line !== title && /^(教室|讲室|上课地点|地点|@)/.test(line))?.replace(/^@/, "") ?? "";
+  const teacher = lines.find(line => line !== title && /^(教师|老师|授课教师)\s*[:：]/.test(line))?.replace(/^(教师|老师|授课教师)\s*[:：]\s*/, "") ?? "";
   const code = lines.find((line) => /^[A-Za-z]{1,8}[-_]?[A-Za-z0-9]{2,20}$/.test(line)) ?? "";
-  return { title, location, teacher, courseCode: code, weeks: weeks.length ? weeks : Array.from({ length: 20 }, (_, index) => index + 1), startPeriod: period.startPeriod, endPeriod: period.endPeriod };
+  return { title, location, teacher, courseCode: code, weeks, weekText, parity, startPeriod: period.startPeriod, endPeriod: period.endPeriod };
 }
 function normalizeCell(value: string): string { return String(value ?? "").replace(/\u00a0/g, " ").replace(/[ \t\r]+/g, " ").replace(/\n{2,}/g, "\n").trim(); }
 function isTimeOnly(value: string): boolean { return /^(\d{1,2}[:：]\d{2}\s*[-~至]\s*\d{1,2}[:：]\d{2})$/.test(value); }

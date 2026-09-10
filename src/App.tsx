@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CourseDetails } from "./components/CourseDetails";
+import { CourseOccurrenceDialog } from "./components/CourseOccurrenceDialog";
+import { normalizeCourseExceptions, occurrenceDateKey, resolveCourseOccurrences } from "./domain/courseExceptions";
 import { CourseEditorDialog, type CourseDraftSlot } from "./components/CourseEditorDialog";
 import { CalendarImportDialog } from "./components/CalendarImportDialog";
 import { GradeEditorDialog } from "./components/GradeEditorDialog";
@@ -15,7 +17,7 @@ import { TimetableDialog } from "./components/TimetableDialog";
 import { TodayAgenda } from "./components/TodayAgenda";
 import { WeekCalendar, type WeekCalendarHandle } from "./components/WeekCalendar";
 import { defaultPresets } from "./data/demo";
-import { alignImportedWeeks, normalizeAcademicCalendar, resolveAcademicCalendar, suggestAcademicCalendar } from "./domain/academicCalendar";
+import { alignImportedWeeks, dateForCourse, normalizeAcademicCalendar, resolveAcademicCalendar, suggestAcademicCalendar } from "./domain/academicCalendar";
 import { academicPositionForDate } from "./domain/dayAgenda";
 import { MAX_ACADEMIC_WEEK, MIN_ACADEMIC_WEEK, type CourseMeeting, type DayOfWeek, type ScheduleSnapshot, type TimetablePreset } from "./domain/schedule";
 import { mergeGrades, normalizeGrades, type GradeRecord } from "./grades/gradeCenter";
@@ -43,7 +45,7 @@ import { InteractionFeedback, Snackbar } from "./ui/Feedback";
 const STORAGE_KEY = "kezhi.schedule.prototype.v2";
 const THEME_KEY = "kezhi.appearance.theme";
 function normalizeSnapshot(snapshot: ScheduleSnapshot): ScheduleSnapshot {
-  return { ...snapshot, ...normalizeAcademicCalendar(snapshot), reminderSettings: normalizeReminderSettings(snapshot.reminderSettings), selectionAssistant: normalizeSelectionAssistant(snapshot.selectionAssistant), grades: normalizeGrades(snapshot.grades) };
+  return { ...snapshot, courseExceptions: normalizeCourseExceptions(snapshot.courseExceptions), ...normalizeAcademicCalendar(snapshot), reminderSettings: normalizeReminderSettings(snapshot.reminderSettings), selectionAssistant: normalizeSelectionAssistant(snapshot.selectionAssistant), grades: normalizeGrades(snapshot.grades) };
 }
 
 function saveCompatibilitySnapshot(snapshot: ScheduleSnapshot): boolean {
@@ -84,6 +86,8 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string>();
   const [timetableOpen, setTimetableOpen] = useState(false);
   const [editingCourse, setEditingCourse] = useState<CourseMeeting | "new">();
+  const [occurrenceOpen, setOccurrenceOpen] = useState<{ course: CourseMeeting; date: string }>();
+  const [selectedDate, setSelectedDate] = useState<string>();
   const [editingGrade, setEditingGrade] = useState<GradeRecord | "new">();
   const [importOpen, setImportOpen] = useState(false);
   const [calendarImportOpen, setCalendarImportOpen] = useState(false);
@@ -110,11 +114,16 @@ export function App() {
   const capabilities = getRuntimeCapabilities();
 
   const calendar = useMemo(() => resolveAcademicCalendar(normalizeAcademicCalendar(snapshot)), [snapshot.schoolId, snapshot.academicYear, snapshot.semester, snapshot.studentGrade, snapshot.termStartsOn, snapshot.teachingStartsOn]);
-  const view = useMemo(() => buildWeekView(snapshot.courses, calendar, week), [snapshot.courses, calendar, week]);
+  const effectiveCourses = useMemo(() => resolveCourseOccurrences(snapshot.courses, snapshot.courseExceptions, calendar), [snapshot.courses, snapshot.courseExceptions, calendar]);
+  const view = useMemo(() => buildWeekView(effectiveCourses, calendar, week), [effectiveCourses, calendar, week]);
   const preset = activePreset(snapshot);
-  const previousView = useMemo(() => buildWeekView(snapshot.courses, calendar, Math.max(MIN_ACADEMIC_WEEK, week - 1)), [snapshot.courses, calendar, week]);
-  const nextView = useMemo(() => buildWeekView(snapshot.courses, calendar, Math.min(MAX_ACADEMIC_WEEK, week + 1)), [snapshot.courses, calendar, week]);
-  const selected = snapshot.courses.find((course) => course.id === selectedId);
+  const previousView = useMemo(() => buildWeekView(effectiveCourses, calendar, Math.max(MIN_ACADEMIC_WEEK, week - 1)), [effectiveCourses, calendar, week]);
+  const nextView = useMemo(() => buildWeekView(effectiveCourses, calendar, Math.min(MAX_ACADEMIC_WEEK, week + 1)), [effectiveCourses, calendar, week]);
+  const selected = effectiveCourses.find((course) => course.id === selectedId) ?? snapshot.courses.find(course => course.id === selectedId);
+  const selectedBase = snapshot.courses.find(course => course.id === (selected?.occurrence?.courseId ?? selected?.id));
+  const openSelectedOccurrence = () => {
+    if (selected && selectedBase) setOccurrenceOpen({ course: selectedBase, date: selected.occurrence?.originalDate ?? selectedDate ?? occurrenceDateKey(dateForCourse(calendar, week, selected.day)) });
+  };
   const selectionAssistant = normalizeSelectionAssistant(snapshot.selectionAssistant);
   const grades = normalizeGrades(snapshot.grades);
   const currentAcademicWeek = Math.min(MAX_ACADEMIC_WEEK, Math.max(MIN_ACADEMIC_WEEK, academicPositionForDate(new Date(), calendar).week));
@@ -126,6 +135,7 @@ export function App() {
     : "尚未选择学期";
 
   appBackHandlerRef.current = () => {
+    if (occurrenceOpen) { setOccurrenceOpen(undefined); return; }
     if (weekCalendarRef.current?.cancelOverlay()) return;
     const destination = resolveAppBackDestination({
       syncReviewOpen: Boolean(syncPlan),
@@ -253,7 +263,7 @@ export function App() {
             if (generation === reminderSyncGeneration.current) setScheduledReminderCount(0);
             return;
           }
-          const reminders = buildReminderSchedule(snapshot.courses, preset, calendar, reminderSettings);
+          const reminders = buildReminderSchedule(effectiveCourses, preset, calendar, reminderSettings);
           const count = await replaceScheduledCourseNotifications(reminders);
           if (generation === reminderSyncGeneration.current) setScheduledReminderCount(count);
         })
@@ -266,7 +276,7 @@ export function App() {
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [calendar, capabilities.native, preset, reminderSettings.enabled, reminderSettings.defaultMinutes, snapshot.courses, storageBackend]);
+  }, [calendar, capabilities.native, preset, reminderSettings.enabled, reminderSettings.defaultMinutes, effectiveCourses, storageBackend]);
 
   const changeWeek = (next: number) => {
     const safeWeek = Math.min(MAX_ACADEMIC_WEEK, Math.max(MIN_ACADEMIC_WEEK, next));
@@ -277,6 +287,7 @@ export function App() {
   const handleMove = (id: string, day: DayOfWeek, period: number) => {
     setSnapshot((current) => ({ ...current, courses: moveMeeting(current.courses, id, day, period, preset.periods.length) }));
     setSelectedId(id);
+    setSelectedDate(occurrenceDateKey(dateForCourse(calendar, week, day)));
     setToast("课程已移动 · 下次同步时会询问如何合并");
   };
 
@@ -387,11 +398,12 @@ export function App() {
     setEditingCourse(undefined);
     setNewCourseSlot(undefined);
     setSelectedId(meeting.id);
+    setSelectedDate(occurrenceDateKey(dateForCourse(calendar, week, meeting.day)));
     setToast("课程已保存到本机");
   };
 
   const deleteCourse = (id: string) => {
-    setSnapshot((current) => ({ ...current, courses: current.courses.filter((course) => course.id !== id) }));
+    setSnapshot((current) => ({ ...current, courses: current.courses.filter((course) => course.id !== id), courseExceptions: current.courseExceptions?.filter(change => change.courseId !== id) }));
     setEditingCourse(undefined);
     setNewCourseSlot(undefined);
     setSelectedId(undefined);
@@ -825,7 +837,7 @@ export function App() {
                   selectedId={selectedId}
                   canGoPrevious={week > 1}
                   canGoNext={week < MAX_ACADEMIC_WEEK}
-                  onSelect={(meeting: CourseMeeting) => setSelectedId(meeting.id)}
+                  onSelect={(meeting: CourseMeeting) => { setSelectedId(meeting.id); setSelectedDate(occurrenceDateKey(dateForCourse(calendar, week, meeting.day))); }}
                   onMove={handleMove}
                   ref={weekCalendarRef}
                   onCreate={(day, startPeriod, endPeriod) => openNewCourse({ day, startPeriod, endPeriod })}
@@ -834,14 +846,14 @@ export function App() {
                 {!hasCourses && <EmptySchedule onImport={() => setImportOpen(true)} onCreate={() => openNewCourse()} />}
                 <div className="calendar-hint"><span className="hint-dot" />左右滑动切周 · 长按空白格，用箭头调时间后点 ＋ · 淡色为非本周或未开课</div>
               </section>
-              <CourseDetails meeting={selected} preset={preset} reminderSettings={reminderSettings} onClose={() => setSelectedId(undefined)} onEdit={() => selected && setEditingCourse(selected)} onReminderChange={(minutes) => selected && updateCourseReminder(selected.id, minutes)} onOpenReminderSettings={() => setSettingsOpen(true)} />
+              <CourseDetails meeting={selected} preset={preset} reminderSettings={reminderSettings} onClose={() => setSelectedId(undefined)} onEdit={() => selectedBase && setEditingCourse(selectedBase)} onOccurrence={openSelectedOccurrence} onReminderChange={(minutes) => selectedBase && updateCourseReminder(selectedBase.id, minutes)} onOpenReminderSettings={() => setSettingsOpen(true)} />
             </div>
           </div>
         ) : activePage === "今天" ? (
           <div className="view-stage today-view-stage" key="today">
             <div className="workspace today-workspace">
-              <TodayAgenda courses={snapshot.courses} preset={preset} calendar={calendar} onSelect={(meeting) => setSelectedId(meeting.id)} onCreate={(day, startPeriod) => openNewCourse({ day, startPeriod })} onOpenWeek={(nextWeek) => { changeWeek(nextWeek); setActivePage("课表"); }} />
-              <CourseDetails meeting={selected} preset={preset} reminderSettings={reminderSettings} onClose={() => setSelectedId(undefined)} onEdit={() => selected && setEditingCourse(selected)} onReminderChange={(minutes) => selected && updateCourseReminder(selected.id, minutes)} onOpenReminderSettings={() => setSettingsOpen(true)} />
+              <TodayAgenda courses={effectiveCourses} preset={preset} calendar={calendar} onSelect={(meeting, date) => { setSelectedId(meeting.id); setSelectedDate(occurrenceDateKey(date)); }} onCreate={(day, startPeriod) => openNewCourse({ day, startPeriod })} onOpenWeek={(nextWeek) => { changeWeek(nextWeek); setActivePage("课表"); }} />
+              <CourseDetails meeting={selected} preset={preset} reminderSettings={reminderSettings} onClose={() => setSelectedId(undefined)} onEdit={() => selectedBase && setEditingCourse(selectedBase)} onOccurrence={openSelectedOccurrence} onReminderChange={(minutes) => selectedBase && updateCourseReminder(selectedBase.id, minutes)} onOpenReminderSettings={() => setSettingsOpen(true)} />
             </div>
           </div>
         ) : activePage === "选课" ? (
@@ -935,6 +947,19 @@ export function App() {
       )}
       </Presence>
 
+      <Presence>{occurrenceOpen && <CourseOccurrenceDialog course={occurrenceOpen.course} date={occurrenceOpen.date} calendar={calendar} preset={preset}
+        courses={snapshot.courses} changes={snapshot.courseExceptions}
+        existing={snapshot.courseExceptions?.find(change => change.courseId === occurrenceOpen.course.id && change.originalDate === occurrenceOpen.date)}
+        onClose={() => setOccurrenceOpen(undefined)}
+        onSave={change => {
+          setSnapshot(current => ({ ...current, courseExceptions: normalizeCourseExceptions([...(current.courseExceptions ?? []).filter(entry => entry.courseId !== change.courseId || entry.originalDate !== change.originalDate), change]) }));
+          setOccurrenceOpen(undefined); setSelectedId(undefined); setToast("已保存本次变更 · 再次点课程可撤销");
+        }}
+        onUndo={() => {
+          setSnapshot(current => ({ ...current, courseExceptions: (current.courseExceptions ?? []).filter(entry => entry.courseId !== occurrenceOpen.course.id || entry.originalDate !== occurrenceOpen.date) }));
+          setOccurrenceOpen(undefined); setSelectedId(undefined); setToast("已撤销本次变更，其他周未改变");
+        }} />}</Presence>
+
       <Presence>
       {editingGrade && (
         <GradeEditorDialog
@@ -972,7 +997,10 @@ export function App() {
             setSnapshot((current) => {
               const importedIds = new Set(importedCourses.map((course) => course.id));
               const localCourses = keepLocal ? current.courses.filter((course) => !importedIds.has(course.id)) : [];
-              return { ...current, schoolName: school.name, schoolId: school.id, accountId: account.id, academicYear: term.academicYear, semester: term.semester, studentGrade: term.studentGrade, termStartsOn: normalizeTermStartKey(term.termStartsOn), teachingStartsOn: normalizeTeachingStartKey(term.teachingStartsOn, term.termStartsOn), lastSyncAt: new Date().toISOString(), courses: [...localCourses, ...importedCourses] };
+              const sameContext = current.accountId === account.id && current.schoolId === school.id && current.academicYear === term.academicYear && current.semester === term.semester;
+              const courseIds = new Set([...localCourses, ...importedCourses].map(course => course.id));
+              const courseExceptions = sameContext ? current.courseExceptions?.filter(change => courseIds.has(change.courseId)) : [];
+              return { ...current, courseExceptions, schoolName: school.name, schoolId: school.id, accountId: account.id, academicYear: term.academicYear, semester: term.semester, studentGrade: term.studentGrade, termStartsOn: normalizeTermStartKey(term.termStartsOn), teachingStartsOn: normalizeTeachingStartKey(term.teachingStartsOn, term.termStartsOn), lastSyncAt: new Date().toISOString(), courses: [...localCourses, ...importedCourses] };
             });
             setImportOpen(false);
             setToast(`已从${school.name}导入 ${importedCourses.length} 条课程`);
@@ -997,6 +1025,7 @@ export function App() {
                 termStartsOn,
                 teachingStartsOn: replace || current.courses.length === 0 ? termStartsOn : current.teachingStartsOn,
                 courses: replace ? courses : mergeIcsCourses(current.courses, courses),
+                courseExceptions: replace ? [] : current.courseExceptions,
               };
             });
             setCalendarImportOpen(false);

@@ -32,6 +32,7 @@ export function groupWeekCards(view: WeekView): WeekCardGroup[] {
     }
     for (const group of groups) {
       group.entries.sort((a, b) => Number(a.inactive) - Number(b.inactive)
+        || Number(a.meeting.status === "cancelled") - Number(b.meeting.status === "cancelled")
         || a.meeting.startPeriod - b.meeting.startPeriod
         || a.meeting.id.localeCompare(b.meeting.id));
     }

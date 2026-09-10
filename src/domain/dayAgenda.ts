@@ -6,7 +6,7 @@ export interface AcademicDatePosition {
   day: DayOfWeek;
 }
 
-export type AgendaCourseState = "upcoming" | "active" | "finished" | "scheduled";
+export type AgendaCourseState = "upcoming" | "active" | "finished" | "scheduled" | "cancelled";
 
 export function academicPositionForDate(date: Date, calendar: ResolvedAcademicCalendar): AcademicDatePosition {
   const target = localNoon(date);
@@ -27,6 +27,7 @@ export function coursesForAcademicDate(courses: CourseMeeting[], calendar: Resol
 }
 
 export function agendaCourseState(course: CourseMeeting, preset: TimetablePreset, selectedDate: Date, now = new Date()): AgendaCourseState {
+  if (course.status === "cancelled") return "cancelled";
   if (!sameLocalDate(selectedDate, now)) return "scheduled";
   const start = preset.periods.find((period) => period.index === course.startPeriod)?.start;
   const end = preset.periods.find((period) => period.index === course.endPeriod)?.end;

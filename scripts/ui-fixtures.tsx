@@ -15,7 +15,7 @@ function Fixtures() {
   return <div className="app-shell"><main><button onClick={()=>setOpen("sync")}>测试同步弹窗</button><button onClick={()=>setOpen("import")}>测试导入流程</button><button onClick={()=>setOpen("export")}>测试日历写入</button></main>
     <Presence>{open==="export" && <ExportDialog snapshot={{courses:[sample],presets:defaultPresets,activePresetId:"summer"}} preset={defaultPresets[0]} calendar={{weekOneStartsOn:new Date(2026,8,14,12),teachingStartsOn:new Date(2026,8,17,12)}} week={1} onClose={()=>setOpen(undefined)} onPrint={()=>{}} onExported={()=>{}} />}</Presence>
     <Presence>{open==="sync" && <SyncReviewDialog plan={{ checkedAt: new Date().toISOString(), unchangedCount: 12, changes:[{id:"change",kind:"modified",title:sample.title,local:sample,official:{...sample,location:"教学楼 B-205"},changedFields:["教室"]}] }} onClose={()=>setOpen(undefined)} onApply={()=>setOpen(undefined)}/>}</Presence>
-    <Presence>{open==="import" && <ImportWizard onClose={()=>setOpen(undefined)} onStartManual={()=>setOpen(undefined)} onStartCalendarImport={()=>setOpen(undefined)} onRestore={()=>setOpen(undefined)} onImported={()=>setOpen(undefined)}/>}</Presence>
+    <Presence>{open==="import" && <ImportWizard onClose={()=>setOpen(undefined)} onStartManual={()=>setOpen(undefined)} onStartCalendarImport={()=>setOpen(undefined)} onRestore={()=>setOpen(undefined)} onImported={(_school, _account, courses)=>{ window.dispatchEvent(new CustomEvent("kezhi-test-import", { detail: courses })); setOpen(undefined); }}/>}</Presence>
   </div>;
 }
 createRoot(document.getElementById("root")!).render(<StrictMode><Fixtures/></StrictMode>);

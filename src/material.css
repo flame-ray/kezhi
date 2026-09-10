@@ -555,6 +555,31 @@ button:disabled:hover { transform: none; }
 @media (prefers-reduced-motion:reduce) {
   :root *, :root *::before, :root *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
+.portal-week-review { text-align: left; margin-block: 20px; }
+.portal-week-review > p { color: var(--muted); font-size: 13px; line-height: 1.7; }
+.portal-week-review-item, .portal-import-preview article { display: grid; gap: 10px; padding: 16px; margin-block: 12px; background: var(--surface-soft); border-radius: 20px; min-width: 0; }
+.portal-week-review-item small, .portal-import-preview small { color: var(--muted); line-height: 1.6; overflow-wrap: anywhere; }
+.portal-week-review-item label:not(.week-review-skip) { display: grid; gap: 8px; font-size: 13px; }
+.portal-week-review-item input:not([type=checkbox]) { width: 100%; min-height: 48px; padding: 12px; border: 1px solid var(--outline); border-radius: 12px; background: var(--surface); color: var(--text); box-sizing: border-box; }
+:root .material-dialog .portal-week-review-item input:not([type=checkbox])[aria-invalid=true] { border-color: var(--error-text); }
+:root[data-theme="dark"] .portal-week-review { color-scheme: dark; }
+.portal-week-review-item summary, .portal-import-preview summary { cursor: pointer; padding-block: 10px; }
+.portal-week-review-item pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 12px; color: var(--muted); }
+.week-review-skip { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 13px; }
+.portal-week-review-item .week-review-valid { color: var(--primary); }
+.portal-import-preview { text-align: left; }
+.occurrence-body { min-height: 0; flex: 1 1 auto; padding: 4px 24px 24px; overflow-y: auto; overscroll-behavior-y: contain; display: grid; align-content: start; gap: 16px; }
+.occurrence-body > p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.occurrence-action { margin-block: 12px; width: 100%; min-height: 48px; }
+.occurrence-card-label { margin-top: auto; font-size: 10px; color: var(--error-text); }
+.agenda-course.state-cancelled { opacity: .55; }
+.course-card.occurrence-cancelled { opacity: .48; }
+.occurrence-conflicts { padding: 16px; border-radius: 18px; color: var(--warning-text); background: var(--warning-bg); font-size: 12px; line-height: 1.6; }
+.occurrence-conflicts ul { padding: 0; margin: 12px 0; list-style: none; display: grid; gap: 8px; }
+.occurrence-conflicts li { display: grid; overflow-wrap: anywhere; }
+.occurrence-conflicts label { display: flex; gap: 10px; align-items: center; min-height: 48px; cursor: pointer; }
+.occurrence-conflicts input[type="checkbox"] { flex: 0 0 auto; width: 20px; height: 20px; accent-color: var(--primary); }
+.occurrence-conflicts small { display: block; margin-top: 8px; font-size: 11px; }
 @media print {
   :root .page-transition { display: block; height: auto; overflow: visible; }
   :root .material-backdrop, :root .material-snackbar { display: none !important; }

@@ -8,6 +8,8 @@ import { parseScheduleBackup } from "../importing/backupImport";
 import { resolveSchoolLoginUrl, schoolCatalog, type SchoolDefinition } from "../importing/schoolCatalog";
 import { parseZhengfangSchedule, type ScheduleAdapterResult } from "../importing/zhengfangAdapter";
 import { parsePortalSchedule } from "../importing/portalScheduleAdapter";
+import { resolvePortalWeekReview, type PortalWeekReview, type PortalWeekDecision } from "../importing/portalWeekReview";
+import { PortalWeekReviewPanel } from "./PortalWeekReviewPanel";
 import { deleteLoginCredential, fetchSchoolSchedule, getLoginCredentialStatus, getSchoolLoginStatus, hideSchoolLogin, openSchoolLogin, readPortalPageSnapshot, saveLoginCredential } from "../platform/tauriBridge";
 import { getRuntimeCapabilities } from "../platform/runtime";
 import { Icon } from "../ui/Icon";
@@ -65,6 +67,19 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
   const [analyzing, setAnalyzing] = useState(false);
   const [readError, setReadError] = useState<string>();
   const [adapterResult, setAdapterResult] = useState<ScheduleAdapterResult>();
+  const [weekReviews, setWeekReviews] = useState<PortalWeekReview[]>([]);
+  const [weekDecisions, setWeekDecisions] = useState<Record<string, PortalWeekDecision>>({});
+  const reviewed = useMemo(() => {
+    const courses = [...(adapterResult?.courses ?? [])];
+    let unresolved = 0, skipped = 0;
+    for (const review of weekReviews) {
+      const decision = weekDecisions[review.course.id];
+      if (decision?.skip) { skipped++; continue; }
+      const course = resolvePortalWeekReview(review, decision?.text ?? "");
+      if (course) courses.push(course); else unresolved++;
+    }
+    return { courses, unresolved, skipped };
+  }, [adapterResult, weekReviews, weekDecisions]);
   const [weekOffsetApplied, setWeekOffsetApplied] = useState(0);
   const [keepLocal, setKeepLocal] = useState(true);
   const [restoreError, setRestoreError] = useState<string>();
@@ -314,18 +329,22 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
     setReadError(undefined);
     try {
       let result: ScheduleAdapterResult;
+      let pending: PortalWeekReview[] = [];
       if (school.id === "ndnu") {
         const payload = await fetchSchoolSchedule({ schoolId: school.id, accountId: activeAccount.id, loginUrl: school.loginUrl, purpose: "schedule", academicYear, semester });
         result = parseZhengfangSchedule(payload.rows);
       } else {
         const snapshot = await readPortalPageSnapshot({ schoolId: school.id, accountId: activeAccount.id, loginUrl: school.loginUrl, purpose: loginPurpose });
         const generic = parsePortalSchedule(snapshot);
+        pending = generic.weekReviews;
         result = { courses: generic.courses, sourceRows: generic.sourceRows, warnings: generic.warnings };
       }
-      if (result.courses.length === 0) throw new Error(school.id === "ndnu" ? "该学期没有读取到有效课程，请确认学年和学期" : result.warnings.join("；") || "当前网页没有识别到课表。请返回上一步，重新打开浏览器并进入实际课表页面。");
+      if (result.courses.length === 0 && pending.length === 0) throw new Error(school.id === "ndnu" ? "该学期没有读取到有效课程，请确认学年和学期" : result.warnings.join("；") || "当前网页没有识别到课表。请返回上一步，重新打开浏览器并进入实际课表页面。");
       const aligned = alignImportedWeeks(result.courses, calendarRecommendation.importWeekOffset);
       setWeekOffsetApplied(aligned.appliedOffset);
       setAdapterResult({ ...result, courses: aligned.courses });
+      setWeekReviews(pending);
+      setWeekDecisions({});
       setStep(4);
     } catch (error) {
       setReadError(error instanceof Error ? error.message : String(error));
@@ -403,7 +422,14 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
             {readError && <div className="form-error read-error"><Icon name="warning" />{readError}</div>}
           </div>}
 
-          {step === 4 && adapterResult && <div className="import-review"><div className="review-summary"><span><strong>{adapterResult.courses.length}</strong><small>课程记录</small></span><span><strong>{new Set(adapterResult.courses.map((course) => course.title)).size}</strong><small>不同课程</small></span><span><strong>{adapterResult.warnings.length}</strong><small>解析提醒</small></span></div><div className="review-success"><Icon name="check" /><div><strong>已读取真实教务数据</strong><span>共检查 {adapterResult.sourceRows} 条学校记录，已识别星期、节次和周次规则{weekOffsetApplied > 0 ? `，并按大一校历将周次前移 ${weekOffsetApplied} 周` : ""}。</span></div></div>{adapterResult.warnings.length > 0 && <div className="review-warning"><Icon name="warning" /><div><strong>{adapterResult.warnings.length} 项记录被跳过</strong><span>{adapterResult.warnings[0]}</span></div></div>}<label className="import-option"><input type="checkbox" checked={keepLocal} onChange={(event) => setKeepLocal(event.target.checked)} /><span><strong>保留本地课程</strong><small>关闭后将使用本次读取的学校课表替换当前课程</small></span></label></div>}
+          {step === 4 && adapterResult && <div className="import-review">
+            <div className="review-summary"><span><strong>{reviewed.courses.length}</strong><small>可导入记录</small></span><span><strong>{reviewed.unresolved}</strong><small>待补充周次</small></span><span><strong>{reviewed.skipped}</strong><small>手动跳过</small></span></div>
+            <div className="review-success"><Icon name="check" /><div><strong>已读取课程，请核对后导入</strong><span>共检查 {adapterResult.sourceRows} 行学校记录{weekOffsetApplied > 0 ? `，按大一校历将周次前移 ${weekOffsetApplied} 周` : ""}。不确定的周次必须补充或明确跳过。</span></div></div>
+            {adapterResult.warnings.length > 0 && <div className="review-warning"><Icon name="warning" /><div><strong>解析提醒</strong>{adapterResult.warnings.map((warning, index) => <p key={index}>{warning}</p>)}</div></div>}
+            <PortalWeekReviewPanel reviews={weekReviews} decisions={weekDecisions} onChange={(id, decision) => setWeekDecisions(current => ({ ...current, [id]: decision }))} />
+            {reviewed.courses.length > 0 && <details className="portal-import-preview"><summary>核对将导入的 {reviewed.courses.length} 条课程</summary>{reviewed.courses.map(course => <article key={course.id}><strong>{course.title}</strong><small>周{"一二三四五六日"[course.day - 1]} · 第 {course.startPeriod}–{course.endPeriod} 节 · {course.location}</small><small>第 {course.weeks.join("、")} 周</small></article>)}</details>}
+            <label className="import-option"><input type="checkbox" checked={keepLocal} onChange={(event) => setKeepLocal(event.target.checked)} /><span><strong>保留本地课程</strong><small>关闭后将使用本次读取的学校课表替换当前课程</small></span></label>
+          </div>}
         </MotionRegion>
 
         <footer className="dialog-footer wizard-footer">
@@ -416,7 +442,7 @@ export const ImportWizard = forwardRef<ImportWizardHandle, ImportWizardProps>(fu
           {step === 2 && loginState === "connected" && <button className="primary-button" onClick={() => setStep(3)}>继续<Icon name="arrow-right" /></button>}
           {step === 3 && manualImportFlow && <button className="primary-button" onClick={onStartManual}>手动添加课程<Icon name="arrow-right" /></button>}
           {step === 3 && !manualImportFlow && activeAccount && <button className="primary-button" disabled={analyzing || academicYear < 2000 || academicYear > 2100} onClick={() => void readSchedule()}>{analyzing ? "读取中…" : "读取课表"}</button>}
-          {step === 4 && activeAccount && adapterResult && <button className="primary-button" onClick={() => onImported(school, activeAccount, adapterResult.courses, keepLocal, { academicYear, semester, studentGrade, termStartsOn, teachingStartsOn })}>确认导入</button>}
+          {step === 4 && activeAccount && adapterResult && <button className="primary-button" disabled={reviewed.unresolved > 0 || !reviewed.courses.length} onClick={() => { if (!reviewed.unresolved && reviewed.courses.length) onImported(school, activeAccount, reviewed.courses, keepLocal, { academicYear, semester, studentGrade, termStartsOn, teachingStartsOn }); }}>{reviewed.unresolved ? `还有 ${reviewed.unresolved} 条待确认` : "确认导入"}</button>}
         </footer>
     </DialogSurface>
   );

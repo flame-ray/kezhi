@@ -14,6 +14,7 @@ interface CourseDetailsProps {
   onEdit: () => void;
   onReminderChange: (minutes: number | undefined) => void;
   onOpenReminderSettings: () => void;
+  onOccurrence?: () => void;
 }
 
 export function CourseDetails(props: CourseDetailsProps) {
@@ -22,7 +23,7 @@ export function CourseDetails(props: CourseDetailsProps) {
   return <MotionRegion className="desktop-course-details" motionKey={props.meeting?.id ?? "empty"}><CourseDetailContent {...props} /></MotionRegion>;
 }
 
-function CourseDetailContent({ meeting, preset, reminderSettings, onClose, onEdit, onReminderChange, onOpenReminderSettings }: CourseDetailsProps) {
+function CourseDetailContent({ meeting, preset, reminderSettings, onClose, onEdit, onReminderChange, onOpenReminderSettings, onOccurrence }: CourseDetailsProps) {
   if (!meeting) {
     return (
       <aside className="detail-panel detail-empty">
@@ -54,6 +55,8 @@ function CourseDetailContent({ meeting, preset, reminderSettings, onClose, onEdi
       <div className="detail-code">{meeting.courseCode}</div>
       <h2 id="course-detail-title">{meeting.title}</h2>
       <p className="detail-subtitle">{weekText}</p>
+      {meeting.occurrence && <p className="changed-banner">{meeting.note}</p>}
+      {onOccurrence && <button className="soft-button occurrence-action" onClick={onOccurrence}>{meeting.occurrence ? "修改／撤销这次变更" : "仅这一次调课／停课"}</button>}
 
       <div className="detail-list">
         <div><Icon name="clock" /><span><strong>{dayNames[meeting.day - 1]} · 第{meeting.startPeriod}–{meeting.endPeriod}节</strong><small>{start}–{end}</small></span></div>
@@ -61,7 +64,7 @@ function CourseDetailContent({ meeting, preset, reminderSettings, onClose, onEdi
         <div><Icon name="person" /><span><strong>{meeting.teacher}</strong><small>任课教师</small></span></div>
       </div>
 
-      {meeting.status === "changed" && (
+      {meeting.status === "changed" && !meeting.occurrence && (
         <div className="changed-banner">
           <strong>本地调整</strong>
           <span>下次同步时将询问保留哪个版本。</span>
@@ -72,7 +75,7 @@ function CourseDetailContent({ meeting, preset, reminderSettings, onClose, onEdi
         className="reminder-row"
         onClick={() => reminderSettings.enabled ? onReminderChange(reminderMinutes > 0 ? 0 : undefined) : onOpenReminderSettings()}
       >
-        <span><Icon name="bell" /><span><strong>上课提醒</strong><small>{
+        <span><Icon name="bell" /><span><strong>{meeting.occurrence ? "整门课程的提醒设置" : "上课提醒"}</strong><small>{meeting.status === "cancelled" ? "本次不提醒；以下开关仅影响其他上课日期" :
           !reminderSettings.enabled
             ? "总开关已关闭 · 点击设置"
             : reminderMinutes > 0

@@ -2,7 +2,7 @@
 
 当前版本 **0.4.5**：新增 Android 手机系统日历导入、底栏弹性滑动选中背景，修复翻周与长按添加冲突。入口、限制与测试见 [0.4.5 更新说明](docs/RELEASE_0.4.5.md)。安装包已发布到 [GitHub Releases](https://github.com/flame-ray/kezhi/releases/tag/v0.4.5)。
 
-主分支还包含尚未发布为新 Release 的课表重影、长按时间选择、通用网页登录和底部导入按钮修复，详见 [待发布更新](docs/UNRELEASED.md)。现有 v0.4.5 Release 安装包不包含这些后续修复。
+主分支还包含尚未发布为新 Release 的单次调课／停课及撤销、调课冲突确认、导入周次逐条核对、Android 浏览器导航，以及课表重影、长按时间选择和底部导入按钮修复，详见 [待发布更新](docs/UNRELEASED.md)。现有 v0.4.5 Release 安装包不包含这些后续更新。
 
 课织是一个面向 Windows 10/11 与 Android 的本地优先大学课表应用。0.4.4 版本统一了 Material 风格的亮暗主题、9 类弹窗与底部面板、日期跟手滑动和按钮反馈。支持弹窗退场、下拉收起、嵌套焦点恢复及系统减少动态效果。账号档案保存在本机 SQLite，密码独立存入 Windows Credential Manager 或由 Android Keystore 保护的密文。应用继续提供通用选课助手、成绩中心、周课表、每日安排、ICS 导入导出、单双周、多套作息与系统提醒。详见 [0.4.4 界面与动效验收](docs/UI_MOTION_AUDIT_0.4.4.md)。
 
@@ -83,6 +83,7 @@ bun build src/main.tsx --outdir dist-bun --target browser
 - [x] 多套作息编辑与本地保存
 - [x] 作息方案可继续添加节次（最多 30 节），非法时间在写入前拦截
 - [x] 新建、编辑和删除课程
+- [x] 单次调课／停课、持久化撤销、今天/提醒/导出联动及时间冲突确认
 - [x] 连续周、单双周和自定义周次
 - [x] 多学校导入向导与官方页面安全登录说明
 - [x] 宁德师范学院独立 WebView2 登录窗口

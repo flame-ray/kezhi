@@ -29,6 +29,8 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.net.http.SslError
 import android.widget.Button
+import android.widget.EditText
+import android.widget.ProgressBar
 import android.widget.LinearLayout
 import android.widget.TextView
 import app.tauri.annotation.Command
@@ -292,6 +294,96 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
       }
 
       val webView = WebView(activity)
+      var pageLoading = false
+      var lastAttemptUrl = url
+      val loadProgress = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
+        max = 100
+        progressTintList = ColorStateList.valueOf(Color.rgb(74, 94, 224))
+        visibility = View.GONE
+        contentDescription = "网页加载进度"
+      }
+      fun browserButton(label: String) = Button(activity).apply {
+        text = label
+        textSize = 13f
+        isAllCaps = false
+        minWidth = 0
+        minimumWidth = 0
+        setPadding(dp(4), 0, dp(4), 0)
+        setTextColor(Color.rgb(62, 71, 108))
+        backgroundTintList = ColorStateList.valueOf(Color.rgb(233, 236, 247))
+      }
+      val backButton = browserButton("返回")
+      val forwardButton = browserButton("前进")
+      val refreshButton = browserButton("刷新")
+      val addressButton = browserButton("网址")
+      fun updateBrowserControls() {
+        if (!timetableMode) return
+        backButton.isEnabled = webView.canGoBack()
+        forwardButton.isEnabled = webView.canGoForward()
+        refreshButton.text = if (pageLoading) "停止" else if (pageLoadFailed) "重试" else "刷新"
+        refreshButton.contentDescription = if (pageLoading) "停止加载网页" else if (pageLoadFailed) "重新加载失败页面" else "刷新当前网页"
+      }
+      if (timetableMode) {
+        val navigation = LinearLayout(activity).apply {
+          orientation = LinearLayout.HORIZONTAL
+          setPadding(0, 0, 0, dp(8))
+        }
+        listOf(backButton, forwardButton, refreshButton, addressButton).forEach { button ->
+          navigation.addView(button, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(4) })
+        }
+        bottomActions.addView(navigation, 0)
+        backButton.setOnClickListener { if (webView.canGoBack()) webView.goBack() }
+        forwardButton.setOnClickListener { if (webView.canGoForward()) webView.goForward() }
+        refreshButton.setOnClickListener {
+          if (pageLoading) {
+            webView.stopLoading()
+            pageLoading = false
+            pageLoadFailed = true
+            loadProgress.visibility = View.GONE
+            nextImportButton.isEnabled = false
+            nextStatusText.text = "已停止加载，点击重试可重新打开页面"
+            updateBrowserControls()
+          } else if (pageLoadFailed) {
+            val target = Uri.parse(lastAttemptUrl)
+            if (!handleNavigation(webView, target)) webView.loadUrl(lastAttemptUrl)
+          } else webView.reload()
+        }
+        addressButton.setOnClickListener {
+          val input = EditText(activity).apply {
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
+            setSingleLine(true)
+            setText(webView.url?.takeUnless { it == "about:blank" } ?: lastAttemptUrl)
+            setSelectAllOnFocus(true)
+            hint = "https://学校教务网址"
+            contentDescription = "学校网页地址"
+          }
+          val addressContainer = LinearLayout(activity).apply {
+            setPadding(dp(20), dp(8), dp(20), dp(8))
+            addView(input, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+          }
+          val editor = android.app.AlertDialog.Builder(activity)
+            .setTitle("修改当前网页地址")
+            .setMessage("仅支持 HTTPS；更换认证域名需确认。此处不修改账号所属学校。")
+            .setView(addressContainer).setNegativeButton("取消", null).setPositiveButton("打开", null).create()
+          editor.setOnShowListener {
+            editor.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+              val raw = input.text.toString().trim()
+              val candidate = if (raw.contains("://")) raw else "https://$raw"
+              val target = Uri.parse(candidate)
+              if (raw.isBlank() || raw.length > 2048 || target.scheme != "https" || target.host.isNullOrBlank() || target.userInfo != null || raw.any { it.isWhitespace() }) {
+                input.error = "请输入有效且不含账号密码的 HTTPS 网址"
+              } else if (currentMode != "schedule-page" && target.host?.lowercase(Locale.ROOT) != allowedHost) {
+                input.error = "更换学校请关闭浏览器并回到导入向导"
+              } else {
+                editor.dismiss()
+                if (!handleNavigation(webView, target)) webView.loadUrl(candidate)
+              }
+            }
+          }
+          editor.show()
+        }
+        updateBrowserControls()
+      }
       webView.settings.apply {
         javaScriptEnabled = true
         domStorageEnabled = true
@@ -309,7 +401,15 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
       val cookies = CookieManager.getInstance()
       cookies.setAcceptCookie(true)
       cookies.setAcceptThirdPartyCookies(webView, false)
-      webView.webChromeClient = WebChromeClient()
+      webView.webChromeClient = object : WebChromeClient() {
+        override fun onProgressChanged(view: WebView, newProgress: Int) {
+          super.onProgressChanged(view, newProgress)
+          if (!timetableMode) return
+          loadProgress.progress = newProgress
+          loadProgress.contentDescription = "网页加载进度 $newProgress%"
+          loadProgress.visibility = if (pageLoading && !pageLoadFailed && newProgress < 100) View.VISIBLE else View.GONE
+        }
+      }
       webView.webViewClient = object : WebViewClient() {
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
           val next = request.url
@@ -325,22 +425,32 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
         override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
           super.onPageStarted(view, url, favicon)
           pageLoadFailed = false
+          pageLoading = true
+          lastAttemptUrl = url
+          if (timetableMode) { loadProgress.progress = 0; loadProgress.visibility = View.VISIBLE }
           nextStatusText.text = "正在加载 ${Uri.parse(url).host.orEmpty()}"
           nextImportButton.isEnabled = false
+          updateBrowserControls()
         }
 
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
           super.onReceivedError(view, request, error)
           if (request.isForMainFrame) {
             pageLoadFailed = true
+            pageLoading = false
+            loadProgress.visibility = View.GONE
             nextStatusText.text = "加载失败（${error.errorCode}），请检查网址、网络或校园 VPN"
             nextStatusText.setTextColor(Color.rgb(183, 69, 50))
             nextImportButton.isEnabled = false
+            updateBrowserControls()
           }
         }
 
         override fun onPageFinished(view: WebView, finishedUrl: String) {
           super.onPageFinished(view, finishedUrl)
+          pageLoading = false
+          loadProgress.visibility = View.GONE
+          updateBrowserControls()
           if (pageLoadFailed) return
           nextImportButton.isEnabled = true
           // 选课学习模式需要挂钩 fetch / XHR 才能捕获用户实际发出的提交请求。
@@ -355,8 +465,40 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
         override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
           handler.cancel()
           pageLoadFailed = true
+          pageLoading = false
+          loadProgress.visibility = View.GONE
+          nextImportButton.isEnabled = false
+          updateBrowserControls()
           nextStatusText.text = "证书校验失败，已停止加载"
           nextStatusText.setTextColor(Color.rgb(183, 69, 50))
+        }
+
+        override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: android.webkit.WebResourceResponse) {
+          super.onReceivedHttpError(view, request, response)
+          if (timetableMode && request.isForMainFrame) {
+            pageLoadFailed = true
+            pageLoading = false
+            loadProgress.visibility = View.GONE
+            nextImportButton.isEnabled = false
+            nextStatusText.text = "学校网站返回 HTTP ${response.statusCode}，可在底部重试或修改网址"
+            nextStatusText.setTextColor(Color.rgb(183, 69, 50))
+            updateBrowserControls()
+          }
+        }
+
+        override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
+          super.doUpdateVisitedHistory(view, url, isReload)
+          updateBrowserControls()
+        }
+
+        override fun onFormResubmission(view: WebView, dontResend: android.os.Message, resend: android.os.Message) {
+          if (!timetableMode) { super.onFormResubmission(view, dontResend, resend); return }
+          android.app.AlertDialog.Builder(activity)
+            .setTitle("是否重新提交页面表单？")
+            .setMessage("刷新此页面需要再次提交先前的表单，请确认不会重复执行不需要的操作。")
+            .setNegativeButton("取消") { _, _ -> dontResend.sendToTarget() }
+            .setPositiveButton("确认刷新") { _, _ -> resend.sendToTarget() }
+            .setOnCancelListener { dontResend.sendToTarget() }.show()
         }
       }
 
@@ -424,6 +566,7 @@ class SchoolLoginPlugin(private val activity: Activity) : Plugin(activity) {
         }
       }
       root.addView(toolbar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(64)))
+      if (timetableMode) root.addView(loadProgress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)))
       root.addView(webView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
       if (timetableMode) {
         root.addView(bottomActions, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))

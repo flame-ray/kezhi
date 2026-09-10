@@ -10,12 +10,13 @@ const collector = fs.readFileSync("src-tauri/gen/android/app/src/main/assets/kez
     await context.route("**/*", route => new URL(route.request().url()).origin === base ? route.continue() : route.abort());
     await context.addInitScript(() => {
       window.calls = [];
+      window.addEventListener("kezhi-test-import", event => { window.testImported = event.detail; });
       window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
         window.calls.push({ command, args });
         if (command === "load_local_accounts") return [];
         if (command === "save_local_account" && window.failSave) throw new Error("测试：账号保存失败");
         if (command === "login_credential_status") return { saved: false };
-        if (command === "school_login_status") return { windowOpen: true, authenticated: false, sessionCookieCount: 0 };
+        if (command === "school_login_status") return { windowOpen: true, authenticated: !!window.testSnapshot, sessionCookieCount: 0, pageSnapshot: window.testSnapshot && JSON.stringify(window.testSnapshot) };
         return {};
       }};
     });
@@ -46,6 +47,56 @@ const collector = fs.readFileSync("src-tauri/gen/android/app/src/main/assets/kez
     await page.getByText("测试：账号保存失败", { exact: true }).waitFor();
     assert(await page.getByRole("button", { name: "进入学校登录", exact: true }).isEnabled());
     console.log("PASS account persistence failure is visible and retryable");
+
+    const enterReview = async () => {
+      await openWizard();
+      await page.evaluate(() => { window.testSnapshot = { pageUrl: "https://jw.example.edu.cn/table", title: "我的课表", headings: [], forms: [], links: [], resources: [], tables: [{ headers: ["节次", "周一", "周二"], rows: [["1-2", "大学英语\n教室：A101", ""], ["3-4", "高等数学\n单周", ""], ["5-6", "历史\n1-8周", ""]] }] }; });
+      await page.getByRole("button", { name: "进入学校登录", exact: true }).click();
+      await page.getByRole("button", { name: "读取课表", exact: true }).click();
+      await page.getByRole("heading", { name: "补充缺失的上课周次", exact: true }).waitFor();
+    };
+    await enterReview();
+    assert(await page.getByRole("button", { name: "还有 2 条待确认", exact: true }).isDisabled());
+    const english = page.getByLabel("上课周次 · 大学英语", { exact: true });
+    const maths = page.getByLabel("上课周次 · 高等数学", { exact: true });
+    await english.fill("1-");
+    assert.equal(await english.getAttribute("aria-invalid"), "true");
+    await english.fill("1-4");
+    await maths.fill("2,4");
+    assert(await page.getByRole("button", { name: "还有 1 条待确认", exact: true }).isDisabled());
+    await maths.fill("1-8");
+    assert(await page.getByRole("button", { name: "确认导入", exact: true }).isEnabled());
+    fs.mkdirSync("tmp/ui-import-review", { recursive: true });
+    await page.screenshot({ path: "tmp/ui-import-review/light.png", fullPage: true });
+    await page.evaluate(() => document.documentElement.dataset.theme = "dark");
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: "tmp/ui-import-review/dark.png", fullPage: true });
+    await page.locator(".wizard-body").evaluate(element => { element.scrollTop = 0; });
+    await page.screenshot({ path: "tmp/ui-import-review/dark-top.png", fullPage: true });
+    assert(await english.evaluate(input => getComputedStyle(input).backgroundColor === "rgb(20, 21, 24)"));
+    await page.getByRole("button", { name: "确认导入", exact: true }).click();
+    const imported = await page.evaluate(() => window.testImported);
+    assert.deepEqual(imported.find(course => course.title === "大学英语").weeks, [1,2,3,4]);
+    assert.deepEqual(imported.find(course => course.title === "高等数学").weeks, [1,3,5,7]);
+    assert.equal(imported.length, 3);
+    console.log("PASS missing weeks block import until explicitly supplied; parity preserved in final data");
+    await enterReview();
+    await page.getByLabel("本次跳过这条记录", { exact: true }).first().check();
+    assert(await page.getByRole("button", { name: "还有 1 条待确认", exact: true }).isDisabled());
+    await page.getByLabel("本次跳过这条记录", { exact: true }).nth(1).check();
+    await page.getByRole("button", { name: "确认导入", exact: true }).click();
+    const skipped = await page.evaluate(() => window.testImported);
+    assert.equal(skipped.length, 1);
+    assert.equal(skipped[0].title, "历史");
+    console.log("PASS explicit per-record skipping does not drop valid courses");
+    await enterReview();
+    await page.evaluate(() => { window.testSnapshot.tables[0].rows.pop(); });
+    await page.getByRole("button", { name: "上一步", exact: true }).click();
+    await page.getByRole("button", { name: "读取课表", exact: true }).click();
+    await page.getByLabel("本次跳过这条记录", { exact: true }).first().check();
+    await page.getByLabel("本次跳过这条记录", { exact: true }).nth(1).check();
+    assert(await page.getByRole("button", { name: "确认导入", exact: true }).isDisabled());
+    console.log("PASS skipping every record cannot replace the timetable with empty data");
 
     await page.setContent('<table><tr><th colspan="3">学生课表</th></tr><tr><th>节次</th><th>星期一</th><th>星期二</th></tr><tr><td>第1节<br>08:20-09:05</td><td rowspan="2">大学英语<br>教师：测试教师<br>教室：A301<br>1-16周<input value="private-secret"></td><td></td></tr><tr><td>第2节</td><td></td></tr></table><iframe id="frame"></iframe>');
     await page.locator("#frame").evaluate(frame => {

@@ -1,6 +1,7 @@
 import type { CourseMeeting, ScheduleSnapshot, TimetablePreset } from "../domain/schedule";
 import { dateForCourse, isTeachingDate, type ResolvedAcademicCalendar } from "../domain/academicCalendar";
 import { effectiveReminderMinutes, normalizeReminderSettings } from "../reminders/reminderSchedule";
+import { resolveCourseOccurrences } from "../domain/courseExceptions";
 
 const colorMap: Record<CourseMeeting["color"], string> = {
   blue: "#4f84d9",
@@ -36,6 +37,7 @@ export function buildScheduleJson(context: ExportContext): string {
     activePresetId: context.snapshot.activePresetId,
     presets: context.snapshot.presets,
     courses: context.snapshot.courses,
+    courseExceptions: context.snapshot.courseExceptions ?? [],
     reminderSettings: normalizeReminderSettings(context.snapshot.reminderSettings),
     selectionAssistant: context.snapshot.selectionAssistant,
     grades: context.snapshot.grades,
@@ -45,7 +47,7 @@ export function buildScheduleJson(context: ExportContext): string {
 export function buildScheduleCsv(context: ExportContext): string {
   const settings = normalizeReminderSettings(context.snapshot.reminderSettings);
   const headers = ["课程名称", "课程编号", "教师", "教室", "星期", "开始节次", "结束节次", "上课周次", "提醒", "备注"];
-  const rows = context.snapshot.courses.map((course) => [
+  const rows = resolveCourseOccurrences(context.snapshot.courses, context.snapshot.courseExceptions, context.calendar).filter(course => course.status !== "cancelled" && course.weeks.length > 0).map((course) => [
     course.title,
     course.courseCode,
     course.teacher,
@@ -63,7 +65,7 @@ export function buildScheduleCsv(context: ExportContext): string {
 export function buildScheduleIcs(context: ExportContext): string {
   const stamp = toUtcStamp(new Date());
   const settings = normalizeReminderSettings(context.snapshot.reminderSettings);
-  const events = context.snapshot.courses.flatMap((course) => {
+  const events = resolveCourseOccurrences(context.snapshot.courses, context.snapshot.courseExceptions, context.calendar).filter(course => course.status !== "cancelled").flatMap((course) => {
     const startPeriod = context.preset.periods.find((period) => period.index === course.startPeriod);
     const endPeriod = context.preset.periods.find((period) => period.index === course.endPeriod);
     if (!startPeriod || !endPeriod) return [];
@@ -74,7 +76,7 @@ export function buildScheduleIcs(context: ExportContext): string {
       if (!isTeachingDate(context.calendar, date)) return [];
       return [[
         "BEGIN:VEVENT",
-        `UID:${icsEscape(`${course.id}-${week}@kezhi.local`)}`,
+        `UID:${icsEscape(`${course.occurrence?.courseId ?? course.id}-${course.occurrence?.originalWeek ?? week}@kezhi.local`)}`,
         `DTSTAMP:${stamp}`,
         `DTSTART;TZID=Asia/Shanghai:${toLocalStamp(date, startPeriod.start)}`,
         `DTEND;TZID=Asia/Shanghai:${toLocalStamp(date, endPeriod.end)}`,
@@ -121,8 +123,8 @@ export function buildWeekSvg(context: ExportContext, week: number): string {
     return `<line x1="${x}" y1="${header}" x2="${x}" y2="${height - 42}" stroke="#eceef3"/><text x="${x + dayWidth / 2}" y="38" text-anchor="middle" font-size="15" font-weight="700" fill="#636875">${name}</text><text x="${x + dayWidth / 2}" y="61" text-anchor="middle" font-size="13" fill="#8d919c">${date.getMonth() + 1}/${date.getDate()}</text>`;
   }).join("");
 
-  const cards = context.snapshot.courses.filter((course) => {
-    return course.weeks.includes(week) && isTeachingDate(context.calendar, dateForCourse(context.calendar, week, course.day));
+  const cards = resolveCourseOccurrences(context.snapshot.courses, context.snapshot.courseExceptions, context.calendar).filter((course) => {
+    return course.status !== "cancelled" && course.weeks.includes(week) && isTeachingDate(context.calendar, dateForCourse(context.calendar, week, course.day));
   }).map((course) => {
     const x = left + (course.day - 1) * dayWidth + 5;
     const y = header + (course.startPeriod - 1) * rowHeight + 5;

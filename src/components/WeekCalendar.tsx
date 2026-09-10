@@ -311,7 +311,7 @@ export const WeekCalendar = forwardRef<WeekCalendarHandle, WeekCalendarProps>(fu
             <strong>{meeting.title}</strong>
             <span>第 {meeting.startPeriod}–{meeting.endPeriod} 节 · {meeting.location}</span>
             <span>{meeting.teacher}</span>
-            <small>{inactive ? "非本周" : beforeTeaching ? "本周 · 未开课" : "本周上课"}{alternatingWeekLabel(meeting.weeks) ? ` · ${alternatingWeekLabel(meeting.weeks)}` : ""} · 第 {meeting.weeks.join("、")} 周</small>
+            <small>{meeting.status === "cancelled" ? (meeting.occurrence?.kind === "move" ? "本次已调走" : "本次停课") : inactive ? "非本周" : beforeTeaching ? "本周 · 未开课" : "本周上课"}{alternatingWeekLabel(meeting.weeks) ? ` · ${alternatingWeekLabel(meeting.weeks)}` : ""} · 第 {meeting.weeks.join("、")} 周</small>
           </button>)}
         </div>
       </DialogSurface>}</Presence>
@@ -403,10 +403,10 @@ const CalendarGrid = memo(function CalendarGrid({ view, preset, selectedId, inte
         return (
           <button
             type="button"
-            draggable={interactive && !multiple}
+            draggable={interactive && !multiple && !meeting.occurrence}
             aria-haspopup={multiple ? "dialog" : undefined}
             tabIndex={interactive ? 0 : -1}
-            className={`course-card color-${meeting.color} ${selectedId === meeting.id ? "selected" : ""} ${meeting.status === "changed" ? "changed" : ""} ${inactive ? "not-this-week" : ""} ${beforeTeaching ? "before-teaching" : ""}`}
+            className={`course-card color-${meeting.color} ${selectedId === meeting.id ? "selected" : ""} ${meeting.status === "changed" ? "changed" : ""} ${meeting.status === "cancelled" ? "occurrence-cancelled" : ""} ${inactive ? "not-this-week" : ""} ${beforeTeaching ? "before-teaching" : ""}`}
             style={{
               gridColumn: meeting.day + 1,
               gridRow: `${group.startPeriod + 1} / span ${span}`,
@@ -414,7 +414,7 @@ const CalendarGrid = memo(function CalendarGrid({ view, preset, selectedId, inte
             key={meeting.id}
             onClick={() => { if (!interactive) return; if (multiple) onShowOverlap?.(group); else onSelect?.(meeting); }}
             onDragStart={(event) => {
-              if (!interactive || multiple) return;
+              if (!interactive || multiple || meeting.occurrence) { event.preventDefault(); return; }
               event.dataTransfer.effectAllowed = "move";
               event.dataTransfer.setData("text/course-id", meeting.id);
             }}
@@ -424,9 +424,10 @@ const CalendarGrid = memo(function CalendarGrid({ view, preset, selectedId, inte
             {multiple && (meeting.startPeriod !== group.startPeriod || meeting.endPeriod !== group.endPeriod) && <span className="course-stack-period">第{meeting.startPeriod}–{meeting.endPeriod}节</span>}
             <span className="course-meta"><Icon name="location" />{meeting.location}</span>
             {span > 1 && <span className="course-teacher">{meeting.teacher}</span>}
-            {meeting.note && <span className="course-badge">{meeting.note}</span>}
+            {meeting.note && !meeting.occurrence && <span className="course-badge">{meeting.note}</span>}
             {(weekPattern || inactive || beforeTeaching) && <span className="course-week-pattern">{[weekPattern, inactive ? "非本周" : beforeTeaching ? "未开课" : ""].filter(Boolean).join(" · ")}</span>}
-            {meeting.status === "changed" && <span className="change-dot" title="本地已修改" />}
+            {meeting.status === "cancelled" && <small className="occurrence-card-label">{meeting.occurrence?.kind === "move" ? "本次已调走" : "本次停课"}</small>}
+            {meeting.status === "changed" && <span className="change-dot" title={meeting.occurrence ? "仅本次调课" : "本地已修改"} />}
           </button>
         );
       })}

@@ -1,6 +1,7 @@
 import { dateForCourse, isTeachingDate } from "../domain/academicCalendar";
 import { effectiveReminderMinutes, normalizeReminderSettings } from "../reminders/reminderSchedule";
 import type { ExportContext } from "./scheduleExport";
+import { resolveCourseOccurrences } from "../domain/courseExceptions";
 
 export interface PhoneCalendarEvent {
   key: string;
@@ -19,7 +20,8 @@ export function buildPhoneCalendarEvents(context: ExportContext): PhoneCalendarE
   // Correcting the opening date must update existing entries, not create duplicates.
   const scope = [snapshot.schoolId ?? snapshot.schoolName ?? "local", snapshot.academicYear ?? calendar.weekOneStartsOn.getFullYear(), snapshot.semester ?? 1];
   const events = new Map<string, PhoneCalendarEvent>();
-  for (const course of snapshot.courses) {
+  for (const course of resolveCourseOccurrences(snapshot.courses, snapshot.courseExceptions, calendar)) {
+    if (course.status === "cancelled") continue;
     const start = preset.periods.find(p => p.index === course.startPeriod)?.start;
     const end = preset.periods.find(p => p.index === course.endPeriod)?.end;
     if (!start || !end || !/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end)) throw new Error("课程作息时间不完整，请先检查节次设置");
@@ -30,7 +32,7 @@ export function buildPhoneCalendarEvents(context: ExportContext): PhoneCalendarE
       const startMs = Date.parse(dayKey(date) + "T" + start + ":00+08:00");
       const endMs = Date.parse(dayKey(date) + "T" + end + ":00+08:00");
       if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) throw new Error("课程结束时间必须晚于开始时间");
-      const key = JSON.stringify([...scope, course.id, week]);
+      const key = JSON.stringify([...scope, course.occurrence?.courseId ?? course.id, course.occurrence?.originalWeek ?? week]);
       events.set(key, {
         key, title: course.title, location: course.location,
         description: [context.termName, course.teacher, "第" + week + "周 · 第" + course.startPeriod + "-" + course.endPeriod + "节", course.note].filter(Boolean).join("\n"),

@@ -25,7 +25,7 @@ export function CourseOccurrenceDialog({ course, date, existing, courses, change
     <header className="dialog-header"><div><span className="eyebrow">仅修改这一次</span><h2 id="occurrence-title">单次调课／停课</h2><p className="dialog-description">{course.title} · 原日期 {date}</p></div><button className="icon-button" aria-label="关闭单次调课" onClick={onClose}><Icon name="close" /></button></header>
     <div className="dialog-body occurrence-body">
       <p>其他周仍按原课表上课。此操作仅修改本机，不会向教务系统提交。</p>
-      <p>如已导入手机日历，调课后请重新导入；已写入日历的停课事件需手动删除。</p>
+      <p>如已导入手机日历，变更后请到“手机日历更新预览”确认更新；旧版事件需单独勾选清理。</p>
       <label className="field"><span>本次操作</span><select value={kind} onChange={event => { setAcceptedConflict(""); setKind(event.target.value as "cancel" | "move"); }}><option value="move">调整这一次</option><option value="cancel">这一次停课</option></select></label>
       {kind === "move" && <div className="form-grid">
         <label className="field span-2"><span>调至日期</span><input type="date" value={targetDate} onChange={event => { setAcceptedConflict(""); setTargetDate(event.target.value); }} /></label>

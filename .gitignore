@@ -17,6 +17,8 @@ Thumbs.db
 *.tsbuildinfo
 *.jks
 *.keystore
+*.p12
+*.dpapi.xml
 *.apk
 *.apk.idsig
 key.properties

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { defaultPresets, demoCourses } from "../data/demo";
 import type { ExportContext } from "./scheduleExport";
-import { buildPhoneCalendarEvents } from "./phoneCalendar";
+import { buildPhoneCalendarEvents, phoneCalendarScope } from "./phoneCalendar";
 
 const context: ExportContext = {
   snapshot: { courses: [{ ...demoCourses[0], day: 4, weeks: [1, 3, 5] }], presets: defaultPresets, activePresetId: "summer", reminderSettings: { enabled: true, defaultMinutes: 15 } },
@@ -10,6 +10,11 @@ const context: ExportContext = {
   termName: "2026 秋",
 };
 describe("phone calendar export", () => {
+  it("isolates account and term scopes while retaining scope across date corrections", () => {
+    expect(phoneCalendarScope(context)).not.toBe(phoneCalendarScope({ ...context, snapshot: { ...context.snapshot, accountId: "other" } }));
+    expect(phoneCalendarScope(context)).not.toBe(phoneCalendarScope({ ...context, snapshot: { ...context.snapshot, semester: 2 } }));
+    expect(phoneCalendarScope(context)).toBe(phoneCalendarScope({ ...context, calendar: { ...context.calendar, teachingStartsOn: new Date(2026, 8, 21) } }));
+  });
   it("keeps Thursday opening day in week one and expands odd weeks", () => {
     const events = buildPhoneCalendarEvents(context);
     expect(events).toHaveLength(3);

@@ -10,9 +10,9 @@ import {
 } from "../exporting/scheduleExport";
 import { Icon } from "../ui/Icon";
 import { DialogSurface } from "../ui/DialogSurface";
-import { useRef, useState } from "react";
-import { buildPhoneCalendarEvents } from "../exporting/phoneCalendar";
-import { writePhoneCalendar } from "../platform/phoneCalendar";
+import { useMemo, useRef, useState } from "react";
+import { buildPhoneCalendarEvents, phoneCalendarScope } from "../exporting/phoneCalendar";
+import { applyPhoneCalendar, previewPhoneCalendar, type PhoneCalendarPreview } from "../platform/phoneCalendar";
 import { getRuntimeCapabilities } from "../platform/runtime";
 
 interface ExportDialogProps {
@@ -26,7 +26,10 @@ interface ExportDialogProps {
 }
 
 export function ExportDialog({ snapshot, preset, calendar, week, onClose, onPrint, onExported }: ExportDialogProps) {
-  const [phoneConfirm, setPhoneConfirm] = useState(false);
+  const [preview, setPreview] = useState<{ plan: PhoneCalendarPreview; fingerprint: string }>();
+  const [cleanupLegacy, setCleanupLegacy] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const [visibleChanges, setVisibleChanges] = useState(50);
   const [phoneBusy, setPhoneBusy] = useState(false);
   const [phoneMessage, setPhoneMessage] = useState("");
   const pending = useRef(false);
@@ -39,6 +42,8 @@ export function ExportDialog({ snapshot, preset, calendar, week, onClose, onPrin
     calendar,
     termName: `${academicYear}–${academicYear + 1} 第${semester === 1 ? "一" : "二"}学期`,
   };
+  const fingerprint = useMemo(() => JSON.stringify([snapshot.courses, snapshot.courseExceptions, snapshot.schoolId, snapshot.schoolName, snapshot.accountId, snapshot.academicYear, snapshot.semester, snapshot.reminderSettings, preset, calendar, cleanupLegacy]), [snapshot, preset, calendar, cleanupLegacy]);
+  const currentPreview = preview?.fingerprint === fingerprint ? preview.plan : undefined;
 
   const exportItem = (kind: "ics" | "csv" | "json" | "svg") => {
     const baseName = `课织-${context.termName}`;
@@ -49,25 +54,33 @@ export function ExportDialog({ snapshot, preset, calendar, week, onClose, onPrin
     onExported(`${kind.toUpperCase()} 文件已生成`);
   };
 
-  const importToPhone = async () => {
+  const previewPhone = async () => {
     if (pending.current) return;
     pending.current = true;
     setPhoneBusy(true);
     setPhoneMessage("");
     try {
       const events = buildPhoneCalendarEvents(context);
-      if (!events.length) throw new Error("当前没有可导入的课程，请检查课表和开学日期");
-      const result = await writePhoneCalendar(events);
-      const message = "已写入「" + result.calendarName + "」：新增 " + result.inserted + " 节，更新 " + result.updated + " 节";
-      setPhoneMessage(message);
-      setPhoneConfirm(false);
-      onExported(message);
+      setPreview(undefined); setConfirmed(false); setVisibleChanges(50);
+      const plan = await previewPhoneCalendar(events, phoneCalendarScope(context), cleanupLegacy);
+      setPreview({ plan, fingerprint });
     } catch (error) {
       setPhoneMessage(error instanceof Error ? error.message : String(error));
     } finally {
       pending.current = false;
       setPhoneBusy(false);
     }
+  };
+
+  const applyPreview = async () => {
+    if (pending.current || !currentPreview || !confirmed) return;
+    pending.current = true; setPhoneBusy(true); setPhoneMessage("");
+    try {
+      const result = await applyPhoneCalendar(currentPreview.token);
+      const message = `已更新「${result.calendarName}」：新增 ${result.inserted}、修改 ${result.updated}、删除 ${result.deleted ?? 0} 节`;
+      setPhoneMessage(message); onExported(message);
+    } catch (error) { setPhoneMessage(error instanceof Error ? error.message : String(error)); }
+    finally { pending.current = false; setPhoneBusy(false); setPreview(undefined); setConfirmed(false); }
   };
 
   const formats = [
@@ -87,13 +100,18 @@ export function ExportDialog({ snapshot, preset, calendar, week, onClose, onPrin
           <section className="phone-calendar-card">
             <span className="eyebrow">手机系统日历</span>
             <h3>把上课时间放进日历</h3>
-            <p>按开学日期、单双周和当前作息展开整个学期，写入独立的「课织课表」本地日历。同一条课程重复导入会更新，不会重复添加，也不删除你的其他日程。</p>
+            <p>先预览新增、修改和删除，再确认更新。仅处理独立「课织课表」日历中本应用创建的事件；当前账号和学期之外的新版本事件不受影响。</p>
             {android ? <>
-              {!phoneConfirm && <button className="primary-button" disabled={phoneBusy || !snapshot.courses.length} onClick={() => { setPhoneConfirm(true); setPhoneMessage(""); }}><Icon name="calendar" />{phoneBusy ? "正在写入…" : "导入手机日历"}</button>}
-              {phoneConfirm && <div className="phone-calendar-confirm">
-                <p>将请求日历读写权限，仅用于识别和写入课织日历。课程提醒跟随课织设置。后续改课需再次导入；课织中删除的课程不会自动从系统日历删除。确认继续？</p>
-                <div className="footer-actions"><button className="cancel-button" disabled={phoneBusy} onClick={() => setPhoneConfirm(false)}>暂不导入</button><button className="primary-button" disabled={phoneBusy} onClick={() => void importToPhone()}>{phoneBusy ? "正在写入…" : "确认写入日历"}</button></div>
-              </div>}
+              <p>将请求日历访问权限；预览阶段不会写入或删除事件。空课表也可预览，清理本学期已停课的旧事件。</p>
+              <label className="backup-confirm"><input type="checkbox" disabled={phoneBusy} checked={cleanupLegacy} onChange={event => {setCleanupLegacy(event.target.checked); setPreview(undefined); setConfirmed(false);}} /><span>同时清理旧版课织事件（可能包含其他账号、学期；以预览清单为准）</span></label>
+              <button className="primary-button" disabled={phoneBusy} onClick={() => void previewPhone()}><Icon name="calendar" />{phoneBusy ? "正在处理…" : "预览手机日历更新"}</button>
+              {currentPreview && <section className="phone-calendar-preview" aria-label="手机日历更新预览">
+                <strong>新增 {currentPreview.inserted} · 修改 {currentPreview.updated} · 删除 {currentPreview.deleted} · 不变 {currentPreview.unchanged}</strong>
+                {currentPreview.legacyPreserved > 0 && <p>保留 {currentPreview.legacyPreserved} 条旧版事件。旧版没有账号／学期标识；如首次更新出现重复，可勾选上方旧版清理后重新预览。</p>}
+                <ol>{currentPreview.changes.slice(0, visibleChanges).map((change, index) => <li key={index}><strong>{({ insert: "新增", update: "修改", delete: "删除" })[change.kind]} · {change.title}</strong><span>{new Date(change.startMs).toLocaleString("zh-CN", {timeZone: "Asia/Shanghai"})} · {change.location}</span>{change.kind === "update" && <small>原安排：{new Date(change.previousStartMs!).toLocaleString("zh-CN", {timeZone: "Asia/Shanghai"})} · {change.previousLocation}</small>}</li>)}</ol>
+                {currentPreview.changes.length > visibleChanges && <button className="soft-button" onClick={() => setVisibleChanges(count => count + 50)}>再显示 50 条（共 {currentPreview.changes.length} 条）</button>}
+                {currentPreview.changes.length > 0 ? <><label className="backup-confirm"><input type="checkbox" checked={confirmed} disabled={phoneBusy} onChange={event => setConfirmed(event.target.checked)} /><span>已核对清单，确认上述新增、修改和删除</span></label><button className="primary-button" disabled={!confirmed || phoneBusy} onClick={() => void applyPreview()}>确认更新手机日历</button></> : <p>没有需要更新的事件。</p>}
+              </section>}
             </> : <p>直接写入请使用 Android 安装版；电脑上可导出下方 ICS 文件，再通过日历软件导入。</p>}
             {phoneMessage && <p role="status" className="phone-calendar-message">{phoneMessage}</p>}
           </section>

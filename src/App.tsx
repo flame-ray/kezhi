@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CourseDetails } from "./components/CourseDetails";
 import { CourseOccurrenceDialog } from "./components/CourseOccurrenceDialog";
+import { CourseChangesDialog } from "./components/CourseChangesDialog";
+import { ImportBackupDialog } from "./components/ImportBackupDialog";
+import { createImportSafetyBackup, restoreImportSafetyBackup } from "./importing/importSafetyBackup";
 import { normalizeCourseExceptions, occurrenceDateKey, resolveCourseOccurrences } from "./domain/courseExceptions";
 import { CourseEditorDialog, type CourseDraftSlot } from "./components/CourseEditorDialog";
 import { CalendarImportDialog } from "./components/CalendarImportDialog";
@@ -94,6 +97,8 @@ export function App() {
   const [newCourseSlot, setNewCourseSlot] = useState<CourseDraftSlot>();
   const [exportOpen, setExportOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [changesOpen, setChangesOpen] = useState(false);
+  const [backupOpen, setBackupOpen] = useState(false);
   const [syncPlan, setSyncPlan] = useState<ScheduleSyncPlan>();
   const [toast, setToast] = useState<string>();
   const [syncing, setSyncing] = useState(false);
@@ -136,6 +141,8 @@ export function App() {
 
   appBackHandlerRef.current = () => {
     if (occurrenceOpen) { setOccurrenceOpen(undefined); return; }
+    if (changesOpen) { setChangesOpen(false); return; }
+    if (backupOpen) { setBackupOpen(false); return; }
     if (weekCalendarRef.current?.cancelOverlay()) return;
     const destination = resolveAppBackDestination({
       syncReviewOpen: Boolean(syncPlan),
@@ -282,6 +289,18 @@ export function App() {
     const safeWeek = Math.min(MAX_ACADEMIC_WEEK, Math.max(MIN_ACADEMIC_WEEK, next));
     setWeek(safeWeek);
     setSelectedId(undefined);
+  };
+
+  const importWithRecovery = (reason: string, transform: (current: ScheduleSnapshot) => ScheduleSnapshot): boolean => {
+    try {
+      const importBackup = createImportSafetyBackup(snapshot, reason);
+      const next = transform(snapshot);
+      setSnapshot({ ...next, importBackup });
+      return true;
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "导入前备份失败，未覆盖课表");
+      return false;
+    }
   };
 
   const handleMove = (id: string, day: DayOfWeek, period: number) => {
@@ -886,6 +905,8 @@ export function App() {
       <Presence>
       {settingsOpen && (
         <SettingsDialog
+          onOpenChanges={() => setChangesOpen(true)}
+          onOpenBackup={() => setBackupOpen(true)}
           onOpenExport={() => { setSettingsOpen(false); setExportOpen(true); }}
           settings={reminderSettings}
           scheduledCount={scheduledReminderCount}
@@ -897,6 +918,15 @@ export function App() {
         />
       )}
       </Presence>
+
+      <Presence>{changesOpen && <CourseChangesDialog courses={snapshot.courses} changes={snapshot.courseExceptions ?? []} calendar={calendar}
+        onClose={() => setChangesOpen(false)}
+        onEdit={change => { const course = snapshot.courses.find(item => item.id === change.courseId); if (course) setOccurrenceOpen({ course, date: change.originalDate }); }}
+        onUndo={change => { setSnapshot(current => ({ ...current, courseExceptions: current.courseExceptions?.filter(item => item.courseId !== change.courseId || item.originalDate !== change.originalDate) })); setToast("已撤销这条记录"); }} />}</Presence>
+      <Presence>{backupOpen && <ImportBackupDialog snapshot={snapshot} onClose={() => setBackupOpen(false)} onRestore={() => {
+        try { setSnapshot(normalizeSnapshot(restoreImportSafetyBackup(snapshot))); setBackupOpen(false); setSettingsOpen(false); setSelectedId(undefined); setWeek(1); setToast("已恢复导入前课表；当前课表已保留为新的回退副本"); }
+        catch (error) { setToast(error instanceof Error ? error.message : "恢复失败，未更改课表"); }
+      }} />}</Presence>
 
       <Presence>
       {timetableOpen && (
@@ -984,7 +1014,7 @@ export function App() {
             openNewCourse();
           }}
           onRestore={(restored) => {
-            setSnapshot(normalizeSnapshot(restored));
+            if (!importWithRecovery("JSON 备份导入前", () => normalizeSnapshot(restored))) return;
             setImportOpen(false);
             setWeek(1);
             setToast(`已恢复 ${restored.courses.length} 条课程记录`);
@@ -994,7 +1024,7 @@ export function App() {
             setCalendarImportOpen(true);
           }}
           onImported={(school, account, importedCourses, keepLocal, term) => {
-            setSnapshot((current) => {
+            const imported = importWithRecovery("教务课表导入前", (current) => {
               const importedIds = new Set(importedCourses.map((course) => course.id));
               const localCourses = keepLocal ? current.courses.filter((course) => !importedIds.has(course.id)) : [];
               const sameContext = current.accountId === account.id && current.schoolId === school.id && current.academicYear === term.academicYear && current.semester === term.semester;
@@ -1002,6 +1032,7 @@ export function App() {
               const courseExceptions = sameContext ? current.courseExceptions?.filter(change => courseIds.has(change.courseId)) : [];
               return { ...current, courseExceptions, schoolName: school.name, schoolId: school.id, accountId: account.id, academicYear: term.academicYear, semester: term.semester, studentGrade: term.studentGrade, termStartsOn: normalizeTermStartKey(term.termStartsOn), teachingStartsOn: normalizeTeachingStartKey(term.teachingStartsOn, term.termStartsOn), lastSyncAt: new Date().toISOString(), courses: [...localCourses, ...importedCourses] };
             });
+            if (!imported) return;
             setImportOpen(false);
             setToast(`已从${school.name}导入 ${importedCourses.length} 条课程`);
           }}
@@ -1017,7 +1048,7 @@ export function App() {
           hasExistingCourses={hasCourses}
           onClose={() => setCalendarImportOpen(false)}
           onImport={(courses, termStartsOn, mode) => {
-            setSnapshot((current) => {
+            const imported = importWithRecovery("日历文件导入前", (current) => {
               const replace = mode === "replace";
               return {
                 ...current,
@@ -1028,6 +1059,7 @@ export function App() {
                 courseExceptions: replace ? [] : current.courseExceptions,
               };
             });
+            if (!imported) return;
             setCalendarImportOpen(false);
             setActivePage("课表");
             setWeek(1);

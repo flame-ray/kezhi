@@ -92,6 +92,8 @@ export interface ScheduleSnapshot {
   selectionAssistant?: SelectionAssistantState;
   grades?: GradeRecord[];
   courseExceptions?: CourseException[];
+  importBackup?: ImportSafetyBackup;
 }
+export interface ImportSafetyBackup { createdAt: string; reason: string; data: string }
 import type { GradeRecord } from "../grades/gradeCenter";
 import type { SelectionAssistantState } from "../selection/selectionAssistant";

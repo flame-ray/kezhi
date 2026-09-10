@@ -12,8 +12,14 @@ pub(crate) async fn write_phone_calendar(
     #[cfg(target_os = "android")]
     {
         tauri::async_runtime::spawn_blocking(move || {
+            let command = match request.get("action").and_then(serde_json::Value::as_str) {
+                Some("preview") => "previewCalendar",
+                Some("apply") => "applyCalendar",
+                None | Some("write") => "writeCalendar",
+                _ => return Err("不支持的日历操作".into()),
+            };
             app.state::<PhoneCalendar<tauri::Wry>>().0
-                .run_mobile_plugin("writeCalendar", request)
+                .run_mobile_plugin(command, request)
                 .map_err(|error| error.to_string())
         }).await.map_err(|error| error.to_string())?
     }

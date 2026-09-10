@@ -13,6 +13,10 @@ export interface PhoneCalendarEvent {
   reminderMinutes: number;
 }
 
+export function phoneCalendarScope(context: ExportContext): string {
+  return JSON.stringify([context.snapshot.schoolId ?? context.snapshot.schoolName ?? "local", context.snapshot.accountId ?? "local", context.snapshot.academicYear ?? context.calendar.weekOneStartsOn.getFullYear(), context.snapshot.semester ?? 1]);
+}
+
 export function buildPhoneCalendarEvents(context: ExportContext): PhoneCalendarEvent[] {
   const { snapshot, preset, calendar } = context;
   const settings = normalizeReminderSettings(snapshot.reminderSettings);

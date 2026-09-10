@@ -1,8 +1,8 @@
 # 课织（Kezhi）
 
-当前版本 **0.4.5**：新增 Android 手机系统日历导入、底栏弹性滑动选中背景，修复翻周与长按添加冲突。入口、限制与测试见 [0.4.5 更新说明](docs/RELEASE_0.4.5.md)。安装包已发布到 [GitHub Releases](https://github.com/flame-ray/kezhi/releases/tag/v0.4.5)。
+当前工作版本 **1.0.0**：新增调课记录中心、手机日历更新预览、导入前自动备份及联系开发者入口。功能、测试与升级注意事项见 [1.0.0 更新说明](docs/RELEASE_1.0.0.md)。实际已发布的版本和安装包请以 [GitHub Releases](https://github.com/flame-ray/kezhi/releases) 为准。
 
-主分支还包含尚未发布为新 Release 的单次调课／停课及撤销、调课冲突确认、导入周次逐条核对、Android 浏览器导航，以及课表重影、长按时间选择和底部导入按钮修复，详见 [待发布更新](docs/UNRELEASED.md)。现有 v0.4.5 Release 安装包不包含这些后续更新。
+本版本包含此前的单次调课／停课及撤销、调课冲突确认、导入周次逐条核对、Android 浏览器导航，以及课表重影、长按时间选择和底部导入按钮修复。旧 v0.4.5 安装包不包含这些后续更新。
 
 课织是一个面向 Windows 10/11 与 Android 的本地优先大学课表应用。0.4.4 版本统一了 Material 风格的亮暗主题、9 类弹窗与底部面板、日期跟手滑动和按钮反馈。支持弹窗退场、下拉收起、嵌套焦点恢复及系统减少动态效果。账号档案保存在本机 SQLite，密码独立存入 Windows Credential Manager 或由 Android Keystore 保护的密文。应用继续提供通用选课助手、成绩中心、周课表、每日安排、ICS 导入导出、单双周、多套作息与系统提醒。详见 [0.4.4 界面与动效验收](docs/UI_MOTION_AUDIT_0.4.4.md)。
 
@@ -19,6 +19,8 @@
 无需开发环境的安装程序可从 [GitHub Releases](https://github.com/flame-ray/kezhi/releases) 下载。当前安装包尚未配置公开代码签名证书，Windows 可能显示“未知发布者”。
 
 ### Android 开发版
+
+Android 1.0.0 使用独立正式签名。旧测试版用户须先导出外部 JSON 备份，再卸载旧版、安装正式版并恢复；账号密码需重新保存。开发者签名步骤和密钥备份注意事项见 [正式签名说明](docs/ANDROID_RELEASE_SIGNING.md)。
 
 项目已生成 Tauri Android 原生工程，支持 Android 7.0（API 24）及以上版本。Android Studio、SDK 35/36、NDK r28 和 Rust Android targets 配置完成后，可双击 `启动课织安卓版.cmd`；脚本会检测已连接的真机/模拟器，并启动 Android 调试版。
 

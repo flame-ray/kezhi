@@ -34,6 +34,9 @@ class PhoneCalendarEvent {
 @InvokeArg
 class PhoneCalendarArgs {
   var events: Array<PhoneCalendarEvent> = emptyArray()
+  var scope: String = ""
+  var token: String = ""
+  var cleanupLegacy: Boolean = false
 }
 
 @TauriPlugin(permissions = [Permission(strings = [Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR], alias = "calendar")])
@@ -42,6 +45,45 @@ class PhoneCalendarPlugin(private val activity: Activity) : Plugin(activity) {
   private val busy = AtomicBoolean(false)
   private val account = "app.kezhi.android.local"
   private val calendarName = "课织课表"
+  private val syncEngine = CalendarSyncEngine(activity, account, calendarName)
+
+  @Command
+  fun previewCalendar(invoke: Invoke) {
+    if (!busy.compareAndSet(false, true)) { invoke.reject("已有日历操作正在处理"); return }
+    try {
+      val args = invoke.parseArgs(PhoneCalendarArgs::class.java)
+      validate(args, true)
+      require(args.scope.length in 1..4096) { "缺少课表日历范围" }
+      if (getPermissionState("calendar") != PermissionState.GRANTED) requestPermissionForAlias("calendar", invoke, "previewPermissionResult")
+      else previewGranted(invoke)
+    } catch (error: Exception) { busy.set(false); invoke.reject(error.message ?: "预览参数无效") }
+  }
+
+  @PermissionCallback
+  fun previewPermissionResult(invoke: Invoke) {
+    if (getPermissionState("calendar") != PermissionState.GRANTED) { busy.set(false); invoke.reject("未获得日历权限，未修改任何日程。请允许日历访问后重试。") }
+    else previewGranted(invoke)
+  }
+
+  private fun previewGranted(invoke: Invoke) {
+    worker.execute {
+      try { val args = invoke.parseArgs(PhoneCalendarArgs::class.java); validate(args, true); invoke.resolve(syncEngine.preview(args)) }
+      catch (error: Exception) { invoke.reject(error.message ?: "无法预览系统日历") }
+      finally { busy.set(false) }
+    }
+  }
+
+  @Command
+  fun applyCalendar(invoke: Invoke) {
+    if (!busy.compareAndSet(false, true)) { invoke.reject("已有日历操作正在处理"); return }
+    worker.execute {
+      try {
+        require(getPermissionState("calendar") == PermissionState.GRANTED) { "日历权限已变化，请重新预览" }
+        invoke.resolve(syncEngine.apply(invoke.parseArgs(PhoneCalendarArgs::class.java).token))
+      } catch (error: Exception) { invoke.reject(error.message ?: "更新失败，请重新预览") }
+      finally { busy.set(false) }
+    }
+  }
 
   @Command
   fun writeCalendar(invoke: Invoke) {
@@ -68,8 +110,8 @@ class PhoneCalendarPlugin(private val activity: Activity) : Plugin(activity) {
     } else writeGranted(invoke)
   }
 
-  private fun validate(args: PhoneCalendarArgs) {
-    require(args.events.size in 1..3000) { "一次请选择 1–3000 节课程" }
+  private fun validate(args: PhoneCalendarArgs, allowEmpty: Boolean = false) {
+    require(args.events.size in (if (allowEmpty) 0 else 1)..3000) { "一次最多 3000 节课程" }
     require(args.events.map { it.key }.distinct().size == args.events.size) { "课程标识重复" }
     for (event in args.events) {
       require(event.key.length in 1..2048 && event.title.length in 1..500 && event.location.length <= 1000 && event.description.length <= 4000) { "课程文本过长或不完整" }

@@ -25,6 +25,8 @@ pub(crate) struct ScheduleSnapshot {
     pub grades: Vec<serde_json::Value>,
     #[serde(default)]
     pub course_exceptions: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub import_backup: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -126,6 +128,7 @@ impl ScheduleStore {
         let grades_json =
             serde_json::to_string(&snapshot.grades).map_err(|error| error.to_string())?;
         let exceptions_json = serde_json::to_string(&snapshot.course_exceptions).map_err(|error| error.to_string())?;
+        let backup_json = serde_json::to_string(&snapshot.import_backup).map_err(|error| error.to_string())?;
         let mut connection = self
             .connection
             .lock()
@@ -137,8 +140,8 @@ impl ScheduleStore {
                 "INSERT INTO schedule_state (
                     singleton, active_preset_id, school_name, school_id, account_id,
                     academic_year, semester, student_grade, term_starts_on, teaching_starts_on, last_sync_at, reminders_enabled, default_reminder_minutes,
-                    selection_assistant_json, grades_json, course_exceptions_json
-                 ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                    selection_assistant_json, grades_json, course_exceptions_json, import_backup_json
+                 ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
                  ON CONFLICT(singleton) DO UPDATE SET
                     active_preset_id = excluded.active_preset_id,
                     school_name = excluded.school_name,
@@ -154,7 +157,8 @@ impl ScheduleStore {
                     default_reminder_minutes = excluded.default_reminder_minutes,
                     selection_assistant_json = excluded.selection_assistant_json,
                     grades_json = excluded.grades_json,
-                    course_exceptions_json = excluded.course_exceptions_json",
+                    course_exceptions_json = excluded.course_exceptions_json,
+                    import_backup_json = excluded.import_backup_json",
                 params![
                     snapshot.active_preset_id,
                     snapshot.school_name,
@@ -171,6 +175,7 @@ impl ScheduleStore {
                     selection_assistant_json,
                     grades_json,
                     exceptions_json,
+                    backup_json,
                 ],
             )
             .map_err(database_error)?;
@@ -361,9 +366,10 @@ fn migrate_schema(connection: &Connection) -> Result<(), String> {
         "TEXT NOT NULL DEFAULT '[]'",
     )?;
     add_column_if_missing(connection, "schedule_state", "course_exceptions_json", "TEXT NOT NULL DEFAULT '[]'")?;
+    add_column_if_missing(connection, "schedule_state", "import_backup_json", "TEXT NOT NULL DEFAULT 'null'")?;
     connection
         .execute(
-            "UPDATE schema_meta SET value = '7' WHERE key = 'schema_version'",
+            "UPDATE schema_meta SET value = '8' WHERE key = 'schema_version'",
             [],
         )
         .map_err(database_error)?;
@@ -390,7 +396,7 @@ fn add_column_if_missing(
 fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, String> {
     let state = connection
         .query_row(
-            "SELECT active_preset_id, school_name, school_id, account_id, academic_year, semester, student_grade, term_starts_on, teaching_starts_on, last_sync_at, reminders_enabled, default_reminder_minutes, selection_assistant_json, grades_json, course_exceptions_json
+            "SELECT active_preset_id, school_name, school_id, account_id, academic_year, semester, student_grade, term_starts_on, teaching_starts_on, last_sync_at, reminders_enabled, default_reminder_minutes, selection_assistant_json, grades_json, course_exceptions_json, import_backup_json
              FROM schedule_state WHERE singleton = 1",
             [],
             |row| {
@@ -410,6 +416,7 @@ fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, St
                     row.get::<_, String>(12)?,
                     row.get::<_, String>(13)?,
                     row.get::<_, String>(14)?,
+                    row.get::<_, String>(15)?,
                 ))
             },
         )
@@ -431,6 +438,7 @@ fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, St
         selection_assistant_json,
         grades_json,
         exceptions_json,
+        backup_json,
     )) = state
     else {
         return Ok(None);
@@ -558,12 +566,25 @@ fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, St
             .map_err(|_| "本地数据库中的成绩数据已损坏".to_string())?,
         course_exceptions: serde_json::from_str(&exceptions_json)
             .map_err(|_| "本地数据库中的单次调课数据已损坏".to_string())?,
+        import_backup: serde_json::from_str(&backup_json)
+            .map_err(|_| "本地数据库中的恢复点已损坏".to_string())?,
     };
     validate_snapshot(&snapshot)?;
     Ok(Some(snapshot))
 }
 
 fn validate_snapshot(snapshot: &ScheduleSnapshot) -> Result<(), String> {
+    if let Some(backup) = &snapshot.import_backup {
+        let data = backup.get("data").and_then(serde_json::Value::as_str).ok_or("自动备份格式无效")?;
+        if data.len() > 4 * 1024 * 1024 || backup.get("reason").and_then(serde_json::Value::as_str).is_none_or(|text| text.len() > 300)
+            || backup.get("createdAt").and_then(serde_json::Value::as_str).is_none_or(|text| text.len() > 50) {
+            return Err("自动备份超过大小限制或格式无效".into());
+        }
+        let saved: serde_json::Value = serde_json::from_str(data).map_err(|_| "自动备份内容不是有效 JSON")?;
+        if saved.get("importBackup").is_some_and(|v| !v.is_null()) || saved.get("courses").and_then(serde_json::Value::as_array).is_none() {
+            return Err("自动备份禁止嵌套或缺少课程".into());
+        }
+    }
     if snapshot.courses.len() > 5_000 {
         return Err("课程数量超过本地存储上限".into());
     }
@@ -905,6 +926,7 @@ mod tests {
             },
             selection_assistant: serde_json::json!({"portalUrl": "https://jw.example.edu.cn/"}),
             course_exceptions: vec![serde_json::json!({"courseId":"course-1", "originalDate":"2026-09-21", "kind":"cancel"})],
+            import_backup: None,
             grades: vec![
                 serde_json::json!({"id": "grade-1", "courseName": "高等数学", "score": "92"}),
             ],
@@ -920,6 +942,21 @@ mod tests {
         let store = memory_store();
         let snapshot = sample_snapshot();
         store.save(&snapshot).unwrap();
+        assert_eq!(store.load().unwrap(), Some(snapshot));
+    }
+
+    #[test]
+    fn saves_recovery_point_atomically_and_rejects_nested_backup() {
+        let store = memory_store();
+        let mut snapshot = sample_snapshot();
+        let data = serde_json::to_string(&snapshot).unwrap();
+        snapshot.import_backup = Some(serde_json::json!({"createdAt":"2026-09-10T00:00:00Z","reason":"导入前","data":data}));
+        snapshot.courses.clear();
+        store.save(&snapshot).unwrap();
+        assert_eq!(store.load().unwrap(), Some(snapshot.clone()));
+        let mut bad = snapshot.clone();
+        bad.import_backup.as_mut().unwrap()["data"] = serde_json::Value::String(serde_json::to_string(&snapshot).unwrap());
+        assert!(store.save(&bad).unwrap_err().contains("嵌套"));
         assert_eq!(store.load().unwrap(), Some(snapshot));
     }
 

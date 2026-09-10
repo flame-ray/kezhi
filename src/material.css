@@ -580,6 +580,30 @@ button:disabled:hover { transform: none; }
 .occurrence-conflicts label { display: flex; gap: 10px; align-items: center; min-height: 48px; cursor: pointer; }
 .occurrence-conflicts input[type="checkbox"] { flex: 0 0 auto; width: 20px; height: 20px; accent-color: var(--primary); }
 .occurrence-conflicts small { display: block; margin-top: 8px; font-size: 11px; }
+.maintenance-body { min-height: 0; flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; padding: 4px 24px 24px; display: grid; gap: 16px; align-content: start; }
+.maintenance-body p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+.change-record,.backup-comparison { padding: 18px; border-radius: 20px; background: var(--surface-soft); overflow-wrap: anywhere; }
+.change-record h3 { margin: 8px 0; font-size: 17px; }
+.record-actions,.record-confirm { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+.record-confirm p { width: 100%; }
+.backup-comparison { display: grid; gap: 16px; }
+.backup-comparison strong,.backup-comparison span { display: block; color: var(--text); }
+.backup-confirm { display: flex; gap: 12px; align-items: center; min-height: 48px; font-size: 13px; }
+.backup-confirm input { accent-color: var(--primary); width: 20px; height: 20px; flex-shrink: 0; }
+.phone-calendar-preview { display: grid; gap: 14px; margin-top: 18px; }
+.phone-calendar-preview ol { padding: 0; margin: 0; list-style: none; display: grid; gap: 10px; max-height: 300px; overflow-y: auto; overscroll-behavior: contain; }
+.phone-calendar-preview li { padding: 12px; background: var(--surface); border-radius: 14px; overflow-wrap: anywhere; }
+.phone-calendar-preview li :is(strong,span,small) { display: block; font-size: 12px; line-height: 1.6; }
+.developer-contact { margin-top: 20px; padding: 18px; border-radius: 20px; background: var(--surface-soft); }
+.developer-contact h3 { margin: 0 0 8px; font-size: 17px; font-weight: 500; }
+.developer-contact p,.developer-contact > small { font-size: 12px; line-height: 1.65; color: var(--muted); }
+.developer-contact-row { display: flex; align-items: center; gap: 12px; padding-block: 12px; }
+.developer-contact-row > span { flex: 1; min-width: 0; }
+.developer-contact-row small,.developer-contact-row strong { display: block; }
+.developer-contact-row small { color: var(--muted); font-size: 11px; }
+.developer-contact-row strong { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+.developer-contact-row button { flex-shrink: 0; }
+.contact-copy-status:empty { display: none; }
 @media print {
   :root .page-transition { display: block; height: auto; overflow: visible; }
   :root .material-backdrop, :root .material-snackbar { display: none !important; }

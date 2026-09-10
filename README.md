@@ -1,6 +1,6 @@
 # 课织（Kezhi）
 
-当前工作版本 **1.0.1**：教务导入网址默认留空，不预设任何学校；联系开发者入口移到设置页顶部并加强视觉提示。功能与升级说明见 [1.0.1 更新说明](docs/RELEASE_1.0.1.md)。实际已发布的版本和安装包请以 [GitHub Releases](https://github.com/flame-ray/kezhi/releases) 为准。
+当前工作版本 **1.0.2**：设置页加入 GitHub Releases 官方更新发布地址，可直接打开或复制；外部链接权限只允许该地址。功能与升级说明见 [1.0.2 更新说明](docs/RELEASE_1.0.2.md)。实际已发布的版本和安装包请以 [GitHub Releases](https://github.com/flame-ray/kezhi/releases) 为准。
 
 本版本包含此前的单次调课／停课及撤销、调课冲突确认、导入周次逐条核对、Android 浏览器导航，以及课表重影、长按时间选择和底部导入按钮修复。旧 v0.4.5 安装包不包含这些后续更新。
 

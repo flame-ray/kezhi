@@ -601,6 +601,13 @@ button:disabled:hover { transform: none; }
 .developer-contact h3 { margin: 0 0 8px; font-size: 17px; font-weight: 500; }
 .developer-contact-heading p { margin: 0; }
 .developer-contact p,.developer-contact > small { font-size: 12px; line-height: 1.65; color: var(--muted); }
+.developer-update-source { display: grid; gap: 12px; margin: 14px 0 6px; padding: 14px; border-radius: 16px; background: color-mix(in srgb,var(--primary) 10%,var(--surface)); }
+.developer-update-source > span :is(small,strong,em) { display: block; }
+.developer-update-source small { color: var(--primary); font-size: 11px; font-weight: 650; }
+.developer-update-source strong { margin-top: 3px; font-size: 15px; font-weight: 600; }
+.developer-update-source em { margin-top: 4px; color: var(--muted); font-size: 11px; font-style: normal; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+.developer-update-source > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.developer-update-source button { min-height: 38px; padding: 0 14px; }
 .developer-contact-row { display: flex; align-items: center; gap: 12px; padding-block: 12px; }
 .developer-contact-row > span { flex: 1; min-width: 0; }
 .developer-contact-row small,.developer-contact-row strong { display: block; }

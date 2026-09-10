@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { ReminderSettings } from "../domain/schedule";
 import { Icon } from "../ui/Icon";
 import { DialogSurface } from "../ui/DialogSurface";
@@ -18,6 +19,7 @@ interface SettingsDialogProps {
 
 const reminderChoices = [5, 10, 15, 20, 30, 45, 60];
 const developerContacts = [{ label: "邮箱", value: "rayflame1949@outlook.com" }, { label: "QQ", value: "3886269343" }];
+const officialUpdatesUrl = "https://github.com/flame-ray/kezhi/releases";
 
 export function SettingsDialog({
   settings,
@@ -36,6 +38,19 @@ export function SettingsDialog({
   const copyContact = async (label: string, value: string) => {
     try { await navigator.clipboard.writeText(value); setContactMessage(`${label}已复制`); }
     catch { setContactMessage("系统不允许自动复制，请长按下方联系方式手动复制"); }
+  };
+  const openOfficialUpdates = async () => {
+    try {
+      if ("__TAURI_INTERNALS__" in window) await openUrl(officialUpdatesUrl);
+      else {
+        const opened = window.open(officialUpdatesUrl, "_blank", "noopener,noreferrer");
+        if (!opened) throw new Error("popup blocked");
+      }
+      setContactMessage("已打开 GitHub 官方更新页");
+    } catch {
+      try { await navigator.clipboard.writeText(officialUpdatesUrl); setContactMessage("无法打开浏览器，更新网址已复制"); }
+      catch { setContactMessage("无法打开浏览器，请长按网址手动复制"); }
+    }
   };
 
   const toggle = async () => {
@@ -62,6 +77,7 @@ export function SettingsDialog({
         <div className="settings-body">
           <section className="developer-contact" aria-labelledby="developer-contact-title">
             <div className="developer-contact-heading"><span className="settings-icon"><Icon name="person" /></span><span><h3 id="developer-contact-title">联系开发者</h3><p>反馈问题或提出建议，欢迎通过以下方式联系。</p></span></div>
+            <div className="developer-update-source"><span><small>官方更新发布地址</small><strong>GitHub Releases</strong><em>{officialUpdatesUrl}</em></span><div><button className="primary-button" onClick={() => void openOfficialUpdates()}>打开更新页</button><button className="soft-button" aria-label="复制GitHub更新网址" onClick={() => void copyContact("GitHub 更新网址", officialUpdatesUrl)}>复制网址</button></div></div>
             {developerContacts.map(contact => <div className="developer-contact-row" key={contact.label}><span><small>{contact.label}</small><strong>{contact.value}</strong></span><button className="soft-button" aria-label={`复制${contact.label}`} onClick={() => void copyContact(contact.label, contact.value)}>复制</button></div>)}
             <p role="status" className="contact-copy-status">{contactMessage}</p>
             <small>反馈时请勿发送密码、验证码或包含个人隐私的截图。</small>

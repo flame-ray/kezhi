@@ -19,6 +19,12 @@ const out = path.resolve("tmp/ui-maintenance"); fs.mkdirSync(out, {recursive:tru
   await settings();
   assert(await page.locator(".developer-contact").evaluate(element => element === element.parentElement.firstElementChild), "developer contact should be the first settings section");
   await page.evaluate(()=>Object.defineProperty(navigator,"clipboard",{configurable:true,value:{writeText:async value=>{window.copiedContact=value;}}}));
+  assert.match(await page.locator(".developer-update-source").textContent(),/官方更新发布地址.*GitHub Releases.*github\.com\/flame-ray\/kezhi\/releases/s);
+  await page.evaluate(()=>{window.calls=[];window.__TAURI_INTERNALS__={invoke:async(command,args)=>{window.calls.push({command,args});}};});
+  await page.getByRole("button",{name:"打开更新页",exact:true}).click();
+  assert(await page.evaluate(()=>window.calls?.some(call=>call.command==="plugin:opener|open_url"&&call.args?.url==="https://github.com/flame-ray/kezhi/releases")),"official update button should use the scoped system opener");
+  await page.getByRole("button",{name:"复制GitHub更新网址",exact:true}).click();
+  assert.equal(await page.evaluate(()=>window.copiedContact),"https://github.com/flame-ray/kezhi/releases");
   await page.getByRole("button",{name:"复制邮箱",exact:true}).click();
   assert.equal(await page.evaluate(()=>window.copiedContact),"rayflame1949@outlook.com");
   await page.getByRole("button",{name:"复制QQ",exact:true}).click();

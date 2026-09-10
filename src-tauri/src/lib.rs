@@ -1373,7 +1373,9 @@ async fn probe_portal_clock(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default().plugin(tauri_plugin_notification::init());
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init());
     #[cfg(target_os = "android")]
     let builder = builder.plugin(android_login::init()).plugin(phone_calendar::init());
 

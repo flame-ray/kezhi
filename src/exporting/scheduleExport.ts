@@ -41,6 +41,7 @@ export function buildScheduleJson(context: ExportContext): string {
     reminderSettings: normalizeReminderSettings(context.snapshot.reminderSettings),
     selectionAssistant: context.snapshot.selectionAssistant,
     grades: context.snapshot.grades,
+    exams: context.snapshot.exams ?? [],
   }, null, 2);
 }
 

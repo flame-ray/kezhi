@@ -33,8 +33,8 @@ export async function replaceScheduledCourseNotifications(reminders: ScheduledCo
   if (capabilities.platform === "android") {
     await createChannel({
       id: COURSE_CHANNEL_ID,
-      name: "上课提醒",
-      description: "按课表时间提醒即将开始的课程",
+      name: "课程与考试提醒",
+      description: "按实际时间提醒即将开始的课程与考试",
       importance: Importance.High,
       visibility: Visibility.Private,
       lights: true,
@@ -51,7 +51,7 @@ export async function replaceScheduledCourseNotifications(reminders: ScheduledCo
       autoCancel: true,
       group: "kezhi-courses",
       channelId: capabilities.platform === "android" ? COURSE_CHANNEL_ID : undefined,
-      extra: { courseId: reminder.courseId, week: reminder.week },
+      extra: { courseId: reminder.courseId, week: reminder.week, ...(reminder.examId ? { examId: reminder.examId } : {}) },
     });
   }
   return reminders.length;
@@ -75,8 +75,8 @@ export async function sendReminderTestNotification(): Promise<void> {
   if (capabilities.platform === "android") {
     await createChannel({
       id: COURSE_CHANNEL_ID,
-      name: "上课提醒",
-      description: "按课表时间提醒即将开始的课程",
+      name: "课程与考试提醒",
+      description: "按实际时间提醒即将开始的课程与考试",
       importance: Importance.High,
       visibility: Visibility.Private,
       lights: true,

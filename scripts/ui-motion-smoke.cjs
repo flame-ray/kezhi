@@ -96,6 +96,8 @@ fs.mkdirSync(out,{recursive:true});
  await np.goto(base+"/scripts/ui-fixtures.html");
  await test("native credential and import steps with mocked transport",async()=>{
    await np.getByRole("button",{name:"测试导入流程"}).click();await np.waitForTimeout(420);
+   assert.equal(await np.locator('input[type="url"]').inputValue(), "");
+   await np.locator('input[type="url"]').fill('https://jwgl.ndnu.edu.cn/jwglxt/xtgl/login_slogin.html');
    await np.getByRole("button",{name:"继续",exact:true}).click();
    await np.getByLabel("学号 / 登录账号").fill("visual-student");
    await np.getByLabel("登录密码",{exact:false}).fill("visual-test-only");

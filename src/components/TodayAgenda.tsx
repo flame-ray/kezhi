@@ -6,6 +6,7 @@ import { alternatingWeekLabel } from "../domain/weekPattern";
 import { Icon } from "../ui/Icon";
 import { SwipePager } from "../ui/SwipePager";
 import { reducedMotion } from "../ui/Motion";
+import { examState, localDateKey, type ExamRecord } from "../exams/exams";
 
 const weekNames = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 const stateLabels = { upcoming: "待上课", active: "上课中", finished: "已结束", scheduled: "已安排", cancelled: "本次停课／已调走" } as const;
@@ -17,10 +18,15 @@ interface TodayAgendaProps {
   onSelect: (course: CourseMeeting, date: Date) => void;
   onCreate: (day: DayOfWeek, period: number) => void;
   onOpenWeek: (week: number) => void;
+  exams?: ExamRecord[];
+  onOpenExams?: () => void;
+  onEditExam?: (exam: ExamRecord) => void;
 }
 
-export function TodayAgenda({ courses, preset, calendar, onSelect, onCreate, onOpenWeek }: TodayAgendaProps) {
+export function TodayAgenda({ courses, preset, calendar, onSelect, onCreate, onOpenWeek, exams = [], onOpenExams, onEditExam }: TodayAgendaProps) {
   const [selectedDate, setSelectedDate] = useState(() => atNoon(new Date()));
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => { const refresh = () => { if (!document.hidden) setNow(new Date()); }; const timer = window.setInterval(refresh, 30000); document.addEventListener('visibilitychange', refresh); return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', refresh); }; }, []);
   const dateStripRef = useRef<HTMLDivElement>(null);
   const dateStripTimerRef = useRef<number | undefined>(undefined);
   const centerDateStripRef = useRef(true);
@@ -76,7 +82,9 @@ export function TodayAgenda({ courses, preset, calendar, onSelect, onCreate, onO
   const renderDay = (date: Date) => {
     const coursesOnDate = coursesForAcademicDate(courses, calendar, date);
     const dayPosition = academicPositionForDate(date, calendar);
+    const dayExams = exams.filter(exam => exam.date === localDateKey(date)).sort((a,b) => a.startTime.localeCompare(b.startTime));
     return <div className="today-agenda-list">
+      {dayExams.map(exam => <button className="agenda-course color-amber" key={exam.id} onClick={() => onEditExam?.(exam)}><span className="agenda-time"><strong>{exam.startTime}</strong><small>{exam.endTime}</small></span><i className="agenda-line" /><span className="agenda-course-copy"><small>考试 · {examState(exam, now)}</small><strong>{exam.title}</strong><span><Icon name="location" />{exam.location || '考场待定'}{exam.seat ? ` · 座位 ${exam.seat}` : ''}</span></span><Icon name="chevron-right" /></button>)}
       {coursesOnDate.length ? coursesOnDate.map((course) => {
         const start = preset.periods.find((period) => period.index === course.startPeriod)?.start ?? `第${course.startPeriod}节`;
         const end = preset.periods.find((period) => period.index === course.endPeriod)?.end ?? `第${course.endPeriod}节`;
@@ -87,7 +95,7 @@ export function TodayAgenda({ courses, preset, calendar, onSelect, onCreate, onO
           <span className="agenda-course-copy"><small>{state === "cancelled" ? (course.occurrence?.kind === "move" ? "本次已调走" : "本次停课") : course.occurrence ? "本次调课" : stateLabels[state]} · 第 {course.startPeriod}–{course.endPeriod} 节{pattern ? ` · ${pattern}` : ""}</small><strong>{course.title}</strong><span><Icon name="location" />{course.location}</span><span><Icon name="person" />{course.teacher}</span></span>
           <Icon name="chevron-right" />
         </button>;
-      }) : <div className="today-empty"><span><Icon name="today" /></span><h3>{dayPosition.week < 1 || dayPosition.week > 30 ? "不在当前学期" : "这一天没有课程"}</h3><p>留一点时间，给课表之外的生活。</p><button className="primary-button" onClick={() => onCreate(dayPosition.day, 1)}><Icon name="plus" />添加课程</button></div>}
+      }) : !dayExams.length && <div className="today-empty"><span><Icon name="today" /></span><h3>{dayPosition.week < 1 || dayPosition.week > 30 ? "不在当前学期" : "这一天没有课程"}</h3><p>留一点时间，给课表之外的生活。</p><button className="primary-button" onClick={() => onCreate(dayPosition.day, 1)}><Icon name="plus" />添加课程</button></div>}
     </div>;
   };
 
@@ -95,6 +103,7 @@ export function TodayAgenda({ courses, preset, calendar, onSelect, onCreate, onO
     <header className="today-hero">
       <div><span className="eyebrow">{isToday ? "今天的安排" : weekNames[selectedDate.getDay()]}</span><h2>{formatLongDate(selectedDate)}</h2><p>{position.week >= 1 && position.week <= 30 ? `第 ${position.week} 周 · ${position.week % 2 ? "单周" : "双周"} · ${dayCourses.filter(course => course.status !== "cancelled").length} 门课程${dayCourses.some(course => course.status === "cancelled") ? " · 含停课／调走记录" : ""}` : "当前日期不在本学期内"}</p></div>
       <div className="today-hero-actions">
+        {onOpenExams && <button className="soft-button" onClick={onOpenExams}>考试中心</button>}
         {!isToday && <button className="soft-button" onClick={() => goToDate(new Date())}>回到今天</button>}
         {position.week >= 1 && position.week <= 30 && <button className="soft-button" onClick={() => onOpenWeek(position.week)}>周课表<Icon name="arrow-right" /></button>}
       </div>

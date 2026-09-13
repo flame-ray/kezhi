@@ -1,6 +1,6 @@
 # 课织（Kezhi）
 
-当前工作版本 **1.0.2**：设置页加入 GitHub Releases 官方更新发布地址，可直接打开或复制；外部链接权限只允许该地址。功能与升级说明见 [1.0.2 更新说明](docs/RELEASE_1.0.2.md)。实际已发布的版本和安装包请以 [GitHub Releases](https://github.com/flame-ray/kezhi/releases) 为准。
+当前工作版本 **1.1.1**：Android 课表首页支持 2 秒内连续返回两次回到桌面；考试中心支持 ICS 预览导入和导出，并包含此前的考试提醒、备份与应用内检查更新。开发者联系方式仍在设置顶部。功能与边界见 [1.1.1 更新说明](docs/RELEASE_1.1.1.md)。实际已发布的版本和安装包请以 [GitHub Releases](https://github.com/flame-ray/kezhi/releases) 为准。
 
 本版本包含此前的单次调课／停课及撤销、调课冲突确认、导入周次逐条核对、Android 浏览器导航，以及课表重影、长按时间选择和底部导入按钮修复。旧 v0.4.5 安装包不包含这些后续更新。
 
@@ -110,7 +110,10 @@ bun build src/main.tsx --outdir dist-bun --target browser
 - [x] Android SDK 36 / NDK r28 / 16 KB 页面对齐
 - [x] Android 内置官方网页登录、明显导入按钮与手动同步
 - [x] Android arm64 测试签名 APK / GitHub 发布
-- [ ] Android 正式发行签名 / AAB 商店发布与后台自动同步
+- [x] Android 独立正式发行签名（1.0.0 起）
+- [x] 独立考试中心、实际日期提醒与 JSON 备份
+- [x] 应用内手动检查正式更新与查看说明
+- [ ] AAB 商店发布与后台自动同步
 - [x] ICS 日历导出
 - [x] ICS 日历导入、重复规则展开、作息节次匹配与合并 / 替换
 - [x] CSV / Excel 兼容导出

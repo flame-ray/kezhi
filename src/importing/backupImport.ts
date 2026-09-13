@@ -4,6 +4,7 @@ import { validateTimetablePreset } from "../domain/timetable";
 import { normalizeReminderSettings } from "../reminders/reminderSchedule";
 import { normalizeGrades } from "../grades/gradeCenter";
 import { normalizeSelectionAssistant } from "../selection/selectionAssistant";
+import { parseExams } from "../exams/exams";
 import { normalizeCourseExceptions } from "../domain/courseExceptions";
 
 const colors: CourseColor[] = ["blue", "teal", "coral", "violet", "rose", "amber", "indigo"];
@@ -55,6 +56,7 @@ export function parseScheduleBackup(text: string): ScheduleSnapshot {
     reminderSettings: normalizeReminderSettings(raw.reminderSettings),
     selectionAssistant: normalizeSelectionAssistant(raw.selectionAssistant),
     grades: normalizeGrades(raw.grades),
+    exams: raw.exams === undefined ? undefined : parseExams(raw.exams),
     courseExceptions: normalizeCourseExceptions(raw.courseExceptions),
   };
 }

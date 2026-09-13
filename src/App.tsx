@@ -13,6 +13,13 @@ import { EmptySchedule } from "./components/EmptySchedule";
 import { ExportDialog } from "./components/ExportDialog";
 import { ImportWizard, type ImportWizardHandle } from "./components/ImportWizard";
 import { SettingsDialog } from "./components/SettingsDialog";
+import { UpdateDialog } from "./components/UpdateDialog";
+import { ExamEditorDialog } from "./components/ExamEditorDialog";
+import { ExamsPage } from "./components/ExamsPage";
+import { ExamCalendarImportDialog } from './components/ExamCalendarImportDialog';
+import { mergeExams, parseExams, type ExamRecord } from "./exams/exams";
+import { buildExamReminders } from "./exams/examReminders";
+import "./exams/exams.css";
 import { SelectionAssistantPage } from "./components/SelectionAssistantPage";
 import { Sidebar } from "./components/Sidebar";
 import { SyncReviewDialog } from "./components/SyncReviewDialog";
@@ -31,7 +38,8 @@ import { parseZhengfangSchedule } from "./importing/zhengfangAdapter";
 import { mergeIcsCourses } from "./importing/icsImport";
 import { resolveSchoolLoginUrl } from "./importing/schoolCatalog";
 import { resolveAppBackDestination } from "./navigation/backNavigation";
-import { installAndroidBackHandler } from "./platform/androidBack";
+import { installAndroidBackHandler, returnToAndroidHome } from "./platform/androidBack";
+import { createRootBackGate, ROOT_BACK_HINT, ROOT_BACK_WINDOW_MS } from './navigation/rootBack';
 import { fetchPortalResource, fetchSchoolSchedule, getSchoolLoginStatus, isTauriRuntime, loadScheduleSnapshot, openSchoolLogin, prepareSchoolSession, probePortalClock, readPortalPageSnapshot, saveScheduleSnapshot, submitPortalRequest, type SchoolLoginRequest } from "./platform/tauriBridge";
 import { clearScheduledCourseNotifications, clearScheduledSelectionNotifications, ensureNotificationPermission, replaceScheduledCourseNotifications, replaceScheduledSelectionNotifications, sendReminderTestNotification } from "./platform/notifications";
 import { getRuntimeCapabilities } from "./platform/runtime";
@@ -48,7 +56,7 @@ import { InteractionFeedback, Snackbar } from "./ui/Feedback";
 const STORAGE_KEY = "kezhi.schedule.prototype.v2";
 const THEME_KEY = "kezhi.appearance.theme";
 function normalizeSnapshot(snapshot: ScheduleSnapshot): ScheduleSnapshot {
-  return { ...snapshot, courseExceptions: normalizeCourseExceptions(snapshot.courseExceptions), ...normalizeAcademicCalendar(snapshot), reminderSettings: normalizeReminderSettings(snapshot.reminderSettings), selectionAssistant: normalizeSelectionAssistant(snapshot.selectionAssistant), grades: normalizeGrades(snapshot.grades) };
+  return { ...snapshot, exams: parseExams(snapshot.exams), courseExceptions: normalizeCourseExceptions(snapshot.courseExceptions), ...normalizeAcademicCalendar(snapshot), reminderSettings: normalizeReminderSettings(snapshot.reminderSettings), selectionAssistant: normalizeSelectionAssistant(snapshot.selectionAssistant), grades: normalizeGrades(snapshot.grades) };
 }
 
 function saveCompatibilitySnapshot(snapshot: ScheduleSnapshot): boolean {
@@ -60,7 +68,7 @@ function saveCompatibilitySnapshot(snapshot: ScheduleSnapshot): boolean {
   }
 }
 type AppTheme = "light" | "dark";
-type PrimaryPage = "课表" | "今天" | "选课" | "成绩";
+type PrimaryPage = "课表" | "今天" | "选课" | "成绩" | "考试";
 
 function initialSnapshot(): ScheduleSnapshot {
   try {
@@ -97,6 +105,10 @@ export function App() {
   const [newCourseSlot, setNewCourseSlot] = useState<CourseDraftSlot>();
   const [exportOpen, setExportOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [updateOpen, setUpdateOpen] = useState(false);
+  const [editingExam, setEditingExam] = useState<ExamRecord | 'new'>();
+  const [examImportOpen, setExamImportOpen] = useState(false);
+  const [deletedExam, setDeletedExam] = useState<ExamRecord>();
   const [changesOpen, setChangesOpen] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
   const [syncPlan, setSyncPlan] = useState<ScheduleSyncPlan>();
@@ -116,6 +128,8 @@ export function App() {
   const importWizardRef = useRef<ImportWizardHandle>(null);
   const weekCalendarRef = useRef<WeekCalendarHandle>(null);
   const appBackHandlerRef = useRef<() => void>(() => undefined);
+  const rootBackGate = useRef(createRootBackGate());
+  const returningHome = useRef(false);
   const capabilities = getRuntimeCapabilities();
 
   const calendar = useMemo(() => resolveAcademicCalendar(normalizeAcademicCalendar(snapshot)), [snapshot.schoolId, snapshot.academicYear, snapshot.semester, snapshot.studentGrade, snapshot.termStartsOn, snapshot.teachingStartsOn]);
@@ -131,6 +145,7 @@ export function App() {
   };
   const selectionAssistant = normalizeSelectionAssistant(snapshot.selectionAssistant);
   const grades = normalizeGrades(snapshot.grades);
+  const exams = useMemo(() => parseExams(snapshot.exams), [snapshot.exams]);
   const currentAcademicWeek = Math.min(MAX_ACADEMIC_WEEK, Math.max(MIN_ACADEMIC_WEEK, academicPositionForDate(new Date(), calendar).week));
   const reminderSettings = normalizeReminderSettings(snapshot.reminderSettings);
   const hasCourses = snapshot.courses.length > 0;
@@ -140,10 +155,15 @@ export function App() {
     : "尚未选择学期";
 
   appBackHandlerRef.current = () => {
+    if (returningHome.current) return;
+    if (editingExam || examImportOpen || updateOpen || occurrenceOpen || changesOpen || backupOpen) rootBackGate.current.reset();
+    if (examImportOpen) { setExamImportOpen(false); return; }
+    if (editingExam) { setEditingExam(undefined); return; }
+    if (updateOpen) { setUpdateOpen(false); return; }
     if (occurrenceOpen) { setOccurrenceOpen(undefined); return; }
     if (changesOpen) { setChangesOpen(false); return; }
     if (backupOpen) { setBackupOpen(false); return; }
-    if (weekCalendarRef.current?.cancelOverlay()) return;
+    if (weekCalendarRef.current?.cancelOverlay()) { rootBackGate.current.reset(); return; }
     const destination = resolveAppBackDestination({
       syncReviewOpen: Boolean(syncPlan),
       importOpen,
@@ -157,6 +177,7 @@ export function App() {
       secondaryPageOpen: activePage !== "课表",
     });
 
+    if (destination !== 'root') rootBackGate.current.reset();
     if (destination === "sync-review") setSyncPlan(undefined);
     else if (destination === "import") {
       const wizard = importWizardRef.current;
@@ -172,8 +193,15 @@ export function App() {
     else if (destination === "timetable") setTimetableOpen(false);
     else if (destination === "settings") setSettingsOpen(false);
     else if (destination === "course-details") setSelectedId(undefined);
-    else if (destination === "secondary-page") setActivePage("课表");
-    else if (weekCalendarRef.current?.cancelDraft()) return;
+    else if (destination === "secondary-page") setActivePage(activePage === '考试' ? '今天' : '课表');
+    else if (weekCalendarRef.current?.cancelDraft()) { rootBackGate.current.reset(); return; }
+    else if (capabilities.platform === 'android') {
+      if (rootBackGate.current.press(performance.now()) === 'hint') setToast(ROOT_BACK_HINT);
+      else {
+        setToast(undefined); returningHome.current = true;
+        void returnToAndroidHome().catch(() => setToast('无法返回桌面，请使用系统主页手势')).finally(() => { returningHome.current = false; });
+      }
+    }
     else if (toast) setToast(undefined);
     else setToast("已在课表首页，返回手势不会退出应用");
   };
@@ -187,6 +215,15 @@ export function App() {
       // The active theme still applies even if storage is unavailable.
     }
   }, [theme]);
+
+  useEffect(() => {
+    const reset = () => rootBackGate.current.reset();
+    // A system edge-back gesture is not a click; normal UI actions break the sequence.
+    document.addEventListener('click', reset, true);
+    document.addEventListener('visibilitychange', reset);
+    window.addEventListener('blur', reset);
+    return () => { document.removeEventListener('click', reset, true); document.removeEventListener('visibilitychange', reset); window.removeEventListener('blur', reset); };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -253,7 +290,7 @@ export function App() {
 
   useEffect(() => {
     if (!toast) return;
-    const timeout = window.setTimeout(() => setToast(undefined), 2800);
+    const timeout = window.setTimeout(() => setToast(undefined), toast === ROOT_BACK_HINT ? ROOT_BACK_WINDOW_MS : 2800);
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
@@ -270,7 +307,7 @@ export function App() {
             if (generation === reminderSyncGeneration.current) setScheduledReminderCount(0);
             return;
           }
-          const reminders = buildReminderSchedule(effectiveCourses, preset, calendar, reminderSettings);
+          const reminders = [...buildReminderSchedule(effectiveCourses, preset, calendar, reminderSettings), ...buildExamReminders(exams, reminderSettings.enabled)].sort((a,b) => a.at.getTime() - b.at.getTime()).slice(0,128);
           const count = await replaceScheduledCourseNotifications(reminders);
           if (generation === reminderSyncGeneration.current) setScheduledReminderCount(count);
         })
@@ -283,7 +320,7 @@ export function App() {
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [calendar, capabilities.native, preset, reminderSettings.enabled, reminderSettings.defaultMinutes, effectiveCourses, storageBackend]);
+  }, [calendar, capabilities.native, preset, reminderSettings.enabled, reminderSettings.defaultMinutes, effectiveCourses, exams, storageBackend]);
 
   const changeWeek = (next: number) => {
     const safeWeek = Math.min(MAX_ACADEMIC_WEEK, Math.max(MIN_ACADEMIC_WEEK, next));
@@ -790,9 +827,9 @@ export function App() {
     setToast("成绩记录已删除");
   };
 
-  const pageTitle = activePage === "课表" ? "我的课表" : activePage === "今天" ? "今天" : activePage === "选课" ? "选课助手" : "成绩";
-  const pageContext = activePage === "课表" ? (hasCourses ? `第 ${week} 周` : "等待导入") : activePage === "今天" ? "每日安排" : activePage === "选课" ? "学校页面学习" : `${grades.length} 条记录`;
-  const pageStatus = activePage === "选课" ? (selectionAssistant.monitorEnabled ? "监控中" : selectionAssistant.adapter ? "已学习" : "待配置") : activePage === "成绩" ? (grades.length ? "仅本机" : "待录入") : isLocalSchedule ? "本地" : hasCourses ? "进行中" : "待导入";
+  const pageTitle = activePage === "课表" ? "我的课表" : activePage === "今天" ? "今天" : activePage === "选课" ? "选课助手" : activePage === "考试" ? "考试" : "成绩";
+  const pageContext = activePage === "课表" ? (hasCourses ? `第 ${week} 周` : "等待导入") : activePage === "今天" ? "每日安排" : activePage === "选课" ? "学校页面学习" : `${activePage === '考试' ? exams.length : grades.length} 条记录`;
+  const pageStatus = activePage === '考试' ? (exams.length ? '仅本机' : '待录入') : activePage === '今天' && exams.length && !hasCourses ? '本地' : activePage === "选课" ? (selectionAssistant.monitorEnabled ? "监控中" : selectionAssistant.adapter ? "已学习" : "待配置") : activePage === "成绩" ? (grades.length ? "仅本机" : "待录入") : isLocalSchedule ? "本地" : hasCourses ? "进行中" : "待导入";
   const schedulePage = activePage === "课表" || activePage === "今天";
 
   return (
@@ -800,7 +837,7 @@ export function App() {
       <InteractionFeedback />
 
       <Sidebar
-        active={settingsOpen ? "设置" : activePage}
+        active={settingsOpen ? "设置" : activePage === '考试' ? '今天' : activePage}
         schoolName={snapshot.schoolName}
         onNavigate={(item) => {
           if (item === "设置") setSettingsOpen(true);
@@ -871,10 +908,15 @@ export function App() {
         ) : activePage === "今天" ? (
           <div className="view-stage today-view-stage" key="today">
             <div className="workspace today-workspace">
-              <TodayAgenda courses={effectiveCourses} preset={preset} calendar={calendar} onSelect={(meeting, date) => { setSelectedId(meeting.id); setSelectedDate(occurrenceDateKey(date)); }} onCreate={(day, startPeriod) => openNewCourse({ day, startPeriod })} onOpenWeek={(nextWeek) => { changeWeek(nextWeek); setActivePage("课表"); }} />
+              <TodayAgenda exams={exams} onOpenExams={() => { setSelectedId(undefined); setActivePage('考试'); }} onEditExam={setEditingExam} courses={effectiveCourses} preset={preset} calendar={calendar} onSelect={(meeting, date) => { setSelectedId(meeting.id); setSelectedDate(occurrenceDateKey(date)); }} onCreate={(day, startPeriod) => openNewCourse({ day, startPeriod })} onOpenWeek={(nextWeek) => { changeWeek(nextWeek); setActivePage("课表"); }} />
               <CourseDetails meeting={selected} preset={preset} reminderSettings={reminderSettings} onClose={() => setSelectedId(undefined)} onEdit={() => selectedBase && setEditingCourse(selectedBase)} onOccurrence={openSelectedOccurrence} onReminderChange={(minutes) => selectedBase && updateCourseReminder(selectedBase.id, minutes)} onOpenReminderSettings={() => setSettingsOpen(true)} />
             </div>
           </div>
+        ) : activePage === "考试" ? (
+          <ExamsPage exams={exams} onImport={()=>setExamImportOpen(true)} onToast={setToast} onEdit={exam => setEditingExam(exam ?? 'new')} onBack={() => setActivePage('今天')} onSettings={() => setSettingsOpen(true)} deleted={deletedExam} onUndo={() => {
+            if (!deletedExam) return;
+            try { const next = parseExams([...exams.filter(item => item.id !== deletedExam.id), deletedExam]); setSnapshot(current => ({ ...current, exams: next })); setDeletedExam(undefined); setToast('已恢复考试'); } catch (error) { setToast(String(error)); }
+          }} />
         ) : activePage === "选课" ? (
           <SelectionAssistantPage
             state={selectionAssistant}
@@ -905,6 +947,8 @@ export function App() {
       <Presence>
       {settingsOpen && (
         <SettingsDialog
+          onCheckUpdate={() => setUpdateOpen(true)}
+          onOpenExams={() => { setSettingsOpen(false); setSelectedId(undefined); setActivePage('考试'); }}
           onOpenChanges={() => setChangesOpen(true)}
           onOpenBackup={() => setBackupOpen(true)}
           onOpenExport={() => { setSettingsOpen(false); setExportOpen(true); }}
@@ -919,6 +963,13 @@ export function App() {
       )}
       </Presence>
 
+      <Presence>{updateOpen && <UpdateDialog onClose={() => setUpdateOpen(false)} />}</Presence>
+      <Presence>{examImportOpen && <ExamCalendarImportDialog exams={exams} onClose={()=>setExamImportOpen(false)} onImport={incoming=>{
+        try { const next=mergeExams(exams,incoming); setSnapshot(current=>({...current,exams:next}));setExamImportOpen(false);setToast(`已添加 ${next.length-exams.length} 场考试，未覆盖原有记录`); } catch(error){setToast(error instanceof Error?error.message:'导入失败');}
+      }} />}</Presence>
+      <Presence>{editingExam && <ExamEditorDialog exam={editingExam === 'new' ? undefined : editingExam} exams={exams} remindersEnabled={reminderSettings.enabled} onClose={() => setEditingExam(undefined)} onSave={exam => {
+        try { const next = parseExams([...exams.filter(item => item.id !== exam.id), exam]); setSnapshot(current => ({ ...current, exams: next })); setEditingExam(undefined); setToast('考试已保存'); } catch (error) { setToast(String(error)); }
+      }} onDelete={id => { setDeletedExam(exams.find(item => item.id === id)); setSnapshot(current => ({ ...current, exams: current.exams?.filter(item => item.id !== id) })); setEditingExam(undefined); setActivePage('考试'); setToast('考试已删除，可在考试中心撤销'); }} />}</Presence>
       <Presence>{changesOpen && <CourseChangesDialog courses={snapshot.courses} changes={snapshot.courseExceptions ?? []} calendar={calendar}
         onClose={() => setChangesOpen(false)}
         onEdit={change => { const course = snapshot.courses.find(item => item.id === change.courseId); if (course) setOccurrenceOpen({ course, date: change.originalDate }); }}
@@ -1014,7 +1065,7 @@ export function App() {
             openNewCourse();
           }}
           onRestore={(restored) => {
-            if (!importWithRecovery("JSON 备份导入前", () => normalizeSnapshot(restored))) return;
+            if (!importWithRecovery("JSON 备份导入前", current => normalizeSnapshot({ ...restored, exams: restored.exams ?? current.exams }))) return;
             setImportOpen(false);
             setWeek(1);
             setToast(`已恢复 ${restored.courses.length} 条课程记录`);

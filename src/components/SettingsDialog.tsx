@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openReleasePage } from "../platform/updates";
+import { version } from "../../package.json";
 import type { ReminderSettings } from "../domain/schedule";
 import { Icon } from "../ui/Icon";
 import { DialogSurface } from "../ui/DialogSurface";
@@ -15,6 +16,8 @@ interface SettingsDialogProps {
   onOpenExport?: () => void;
   onOpenChanges?: () => void;
   onOpenBackup?: () => void;
+  onOpenExams?: () => void;
+  onCheckUpdate?: () => void;
 }
 
 const reminderChoices = [5, 10, 15, 20, 30, 45, 60];
@@ -32,6 +35,8 @@ export function SettingsDialog({
   onOpenExport,
   onOpenChanges,
   onOpenBackup,
+  onOpenExams,
+  onCheckUpdate,
 }: SettingsDialogProps) {
   const [busy, setBusy] = useState(false);
   const [contactMessage, setContactMessage] = useState("");
@@ -41,11 +46,7 @@ export function SettingsDialog({
   };
   const openOfficialUpdates = async () => {
     try {
-      if ("__TAURI_INTERNALS__" in window) await openUrl(officialUpdatesUrl);
-      else {
-        const opened = window.open(officialUpdatesUrl, "_blank", "noopener,noreferrer");
-        if (!opened) throw new Error("popup blocked");
-      }
+      await openReleasePage();
       setContactMessage("已打开 GitHub 官方更新页");
     } catch {
       try { await navigator.clipboard.writeText(officialUpdatesUrl); setContactMessage("无法打开浏览器，更新网址已复制"); }
@@ -82,6 +83,8 @@ export function SettingsDialog({
             <p role="status" className="contact-copy-status">{contactMessage}</p>
             <small>反馈时请勿发送密码、验证码或包含个人隐私的截图。</small>
           </section>
+          {onCheckUpdate && <button className="settings-toggle-card" onClick={onCheckUpdate}><span className="settings-icon"><Icon name="shield" /></span><span className="settings-toggle-copy"><strong>检查更新</strong><small>当前版本 {version} · 查看官方新版说明</small></span><Icon name="chevron-right" /></button>}
+          {onOpenExams && <button className="settings-toggle-card" onClick={onOpenExams}><span className="settings-icon"><Icon name="calendar" /></span><span className="settings-toggle-copy"><strong>考试中心</strong><small>考试日期、考场、倒计时与提醒</small></span><Icon name="chevron-right" /></button>}
           {onOpenChanges && <button className="settings-toggle-card" onClick={onOpenChanges}><span className="settings-icon"><Icon name="clock" /></span><span className="settings-toggle-copy"><strong>调课记录中心</strong><small>查看、修改或撤销单次调课／停课</small></span><Icon name="chevron-right" /></button>}
           {onOpenBackup && <button className="settings-toggle-card" onClick={onOpenBackup}><span className="settings-icon"><Icon name="shield" /></span><span className="settings-toggle-copy"><strong>导入前自动备份</strong><small>恢复上一次导入前的课表</small></span><Icon name="chevron-right" /></button>}
           {onOpenExport && <button className="settings-toggle-card" onClick={onOpenExport}>
@@ -92,7 +95,7 @@ export function SettingsDialog({
           <button className="settings-toggle-card" onClick={toggle} disabled={busy || !nativeNotifications}>
             <span className="settings-icon"><Icon name="bell" /></span>
             <span className="settings-toggle-copy">
-              <strong>系统课程通知</strong>
+              <strong>系统课程与考试通知</strong>
               <small>{nativeNotifications ? settings.enabled ? `已预定 ${scheduledCount} 条未来提醒` : "开启后由系统在后台按时提醒" : "请在 Windows 或 Android 安装版中使用"}</small>
             </span>
             <i className={`switch ${settings.enabled ? "active" : ""}`} />
@@ -105,8 +108,8 @@ export function SettingsDialog({
             </select>
           </label>
 
-          <div className="settings-note"><Icon name="shield" /><span><strong>全部在本机完成</strong><small>课程内容不会上传。修改课程、周次、日期或作息后，系统提醒会自动重新安排。</small></span></div>
-          <div className="settings-note reminder-limit-note"><Icon name="clock" /><span><strong>滚动预定下一批提醒</strong><small>每次最多安排未来 128 条；每次启动课织都会补充后续提醒。</small></span></div>
+          <div className="settings-note"><Icon name="shield" /><span><strong>全部在本机完成</strong><small>课程和考试内容不会上传。修改课程、考试、周次、日期或作息后，系统提醒会自动重新安排。</small></span></div>
+          <div className="settings-note reminder-limit-note"><Icon name="clock" /><span><strong>滚动预定下一批提醒</strong><small>课程与考试合计最多预定未来 128 条，按提醒时间排序；每次启动课织都会补充后续提醒。送达受通知权限与系统省电设置影响。</small></span></div>
         </div>
 
         <footer className="dialog-footer">

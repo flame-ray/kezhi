@@ -91,6 +91,7 @@ export interface ScheduleSnapshot {
   reminderSettings?: ReminderSettings;
   selectionAssistant?: SelectionAssistantState;
   grades?: GradeRecord[];
+  exams?: import('../exams/exams').ExamRecord[];
   courseExceptions?: CourseException[];
   importBackup?: ImportSafetyBackup;
 }

@@ -3,6 +3,8 @@ mod android_login;
 mod credential_vault;
 mod phone_calendar;
 mod database;
+mod app_updates;
+mod app_actions;
 
 #[cfg(target_os = "android")]
 use android_login::{
@@ -1377,7 +1379,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init());
     #[cfg(target_os = "android")]
-    let builder = builder.plugin(android_login::init()).plugin(phone_calendar::init());
+    let builder = builder.plugin(android_login::init()).plugin(phone_calendar::init()).plugin(app_actions::init());
 
     builder
         .setup(|app| {
@@ -1391,6 +1393,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            app_updates::check_app_update,
+            app_actions::return_to_home,
+            app_actions::save_exam_calendar,
             phone_calendar::write_phone_calendar,
             load_schedule_snapshot,
             save_schedule_snapshot,

@@ -1,7 +1,12 @@
 import { onBackButtonPress } from "@tauri-apps/api/app";
+import { invoke } from '@tauri-apps/api/core';
 import type { RuntimePlatform } from "./runtime";
 
 export type RemoveAndroidBackHandler = () => void;
+
+export async function returnToAndroidHome(): Promise<void> {
+  await invoke('return_to_home');
+}
 
 export async function installAndroidBackHandler(
   platform: RuntimePlatform,

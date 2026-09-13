@@ -24,6 +24,8 @@ pub(crate) struct ScheduleSnapshot {
     #[serde(default)]
     pub grades: Vec<serde_json::Value>,
     #[serde(default)]
+    pub exams: Vec<serde_json::Value>,
+    #[serde(default)]
     pub course_exceptions: Vec<serde_json::Value>,
     #[serde(default)]
     pub import_backup: Option<serde_json::Value>,
@@ -129,6 +131,7 @@ impl ScheduleStore {
             serde_json::to_string(&snapshot.grades).map_err(|error| error.to_string())?;
         let exceptions_json = serde_json::to_string(&snapshot.course_exceptions).map_err(|error| error.to_string())?;
         let backup_json = serde_json::to_string(&snapshot.import_backup).map_err(|error| error.to_string())?;
+        let exams_json = serde_json::to_string(&snapshot.exams).map_err(|error| error.to_string())?;
         let mut connection = self
             .connection
             .lock()
@@ -140,8 +143,8 @@ impl ScheduleStore {
                 "INSERT INTO schedule_state (
                     singleton, active_preset_id, school_name, school_id, account_id,
                     academic_year, semester, student_grade, term_starts_on, teaching_starts_on, last_sync_at, reminders_enabled, default_reminder_minutes,
-                    selection_assistant_json, grades_json, course_exceptions_json, import_backup_json
-                 ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+                    selection_assistant_json, grades_json, course_exceptions_json, import_backup_json, exams_json
+                 ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
                  ON CONFLICT(singleton) DO UPDATE SET
                     active_preset_id = excluded.active_preset_id,
                     school_name = excluded.school_name,
@@ -158,7 +161,8 @@ impl ScheduleStore {
                     selection_assistant_json = excluded.selection_assistant_json,
                     grades_json = excluded.grades_json,
                     course_exceptions_json = excluded.course_exceptions_json,
-                    import_backup_json = excluded.import_backup_json",
+                    import_backup_json = excluded.import_backup_json,
+                    exams_json = excluded.exams_json",
                 params![
                     snapshot.active_preset_id,
                     snapshot.school_name,
@@ -176,6 +180,7 @@ impl ScheduleStore {
                     grades_json,
                     exceptions_json,
                     backup_json,
+                    exams_json,
                 ],
             )
             .map_err(database_error)?;
@@ -367,9 +372,10 @@ fn migrate_schema(connection: &Connection) -> Result<(), String> {
     )?;
     add_column_if_missing(connection, "schedule_state", "course_exceptions_json", "TEXT NOT NULL DEFAULT '[]'")?;
     add_column_if_missing(connection, "schedule_state", "import_backup_json", "TEXT NOT NULL DEFAULT 'null'")?;
+    add_column_if_missing(connection, "schedule_state", "exams_json", "TEXT NOT NULL DEFAULT '[]'")?;
     connection
         .execute(
-            "UPDATE schema_meta SET value = '8' WHERE key = 'schema_version'",
+            "UPDATE schema_meta SET value = '9' WHERE key = 'schema_version'",
             [],
         )
         .map_err(database_error)?;
@@ -396,7 +402,7 @@ fn add_column_if_missing(
 fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, String> {
     let state = connection
         .query_row(
-            "SELECT active_preset_id, school_name, school_id, account_id, academic_year, semester, student_grade, term_starts_on, teaching_starts_on, last_sync_at, reminders_enabled, default_reminder_minutes, selection_assistant_json, grades_json, course_exceptions_json, import_backup_json
+            "SELECT active_preset_id, school_name, school_id, account_id, academic_year, semester, student_grade, term_starts_on, teaching_starts_on, last_sync_at, reminders_enabled, default_reminder_minutes, selection_assistant_json, grades_json, course_exceptions_json, import_backup_json, exams_json
              FROM schedule_state WHERE singleton = 1",
             [],
             |row| {
@@ -417,6 +423,7 @@ fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, St
                     row.get::<_, String>(13)?,
                     row.get::<_, String>(14)?,
                     row.get::<_, String>(15)?,
+                    row.get::<_, String>(16)?,
                 ))
             },
         )
@@ -439,6 +446,7 @@ fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, St
         grades_json,
         exceptions_json,
         backup_json,
+        exams_json,
     )) = state
     else {
         return Ok(None);
@@ -564,6 +572,8 @@ fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, St
             .map_err(|_| "本地数据库中的选课助手数据已损坏".to_string())?,
         grades: serde_json::from_str(&grades_json)
             .map_err(|_| "本地数据库中的成绩数据已损坏".to_string())?,
+        exams: serde_json::from_str(&exams_json)
+            .map_err(|_| "本地数据库中的考试数据已损坏".to_string())?,
         course_exceptions: serde_json::from_str(&exceptions_json)
             .map_err(|_| "本地数据库中的单次调课数据已损坏".to_string())?,
         import_backup: serde_json::from_str(&backup_json)
@@ -573,7 +583,32 @@ fn load_snapshot(connection: &Connection) -> Result<Option<ScheduleSnapshot>, St
     Ok(Some(snapshot))
 }
 
+fn valid_exam_time(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 5 && bytes[2] == b':' && [0,1,3,4].iter().all(|&i| bytes[i].is_ascii_digit())
+        && &value[..2] <= "23" && &value[3..] <= "59"
+}
+
 fn validate_snapshot(snapshot: &ScheduleSnapshot) -> Result<(), String> {
+    if snapshot.exams.len() > 1000 { return Err("考试记录超过 1000 条".into()); }
+    let mut exam_ids = HashSet::new();
+    for exam in &snapshot.exams {
+        let text = |key: &str| exam.get(key).and_then(serde_json::Value::as_str).unwrap_or("");
+        for (key, limit) in [("id",200), ("title",160), ("location",200), ("seat",40), ("note",2000)] {
+            if exam.get(key).and_then(serde_json::Value::as_str).is_none() || text(key).encode_utf16().count() > limit { return Err("考试字段格式或长度无效".into()); }
+        }
+        if text("id").trim().is_empty() || !exam_ids.insert(text("id")) || text("title").trim().is_empty()
+            || !valid_date_key(text("date")) || !text("date").starts_with("20")
+            || !valid_exam_time(text("startTime")) || !valid_exam_time(text("endTime")) || text("startTime") >= text("endTime") {
+            return Err("考试日期、时间或标识无效".into());
+        }
+        let reminders = exam.get("reminderMinutes").and_then(serde_json::Value::as_array).ok_or("考试提醒格式无效")?;
+        let mut seen = HashSet::new();
+        for value in reminders {
+            let minutes = value.as_u64().ok_or("考试提醒无效")?;
+            if ![1440,60,30,15].contains(&minutes) || !seen.insert(minutes) { return Err("考试提醒无效".into()); }
+        }
+    }
     if let Some(backup) = &snapshot.import_backup {
         let data = backup.get("data").and_then(serde_json::Value::as_str).ok_or("自动备份格式无效")?;
         if data.len() > 4 * 1024 * 1024 || backup.get("reason").and_then(serde_json::Value::as_str).is_none_or(|text| text.len() > 300)
@@ -610,7 +645,7 @@ fn validate_snapshot(snapshot: &ScheduleSnapshot) -> Result<(), String> {
             }
         }
     }
-    let extras_size = serde_json::to_vec(&(&snapshot.selection_assistant, &snapshot.grades, &snapshot.course_exceptions))
+    let extras_size = serde_json::to_vec(&(&snapshot.selection_assistant, &snapshot.grades, &snapshot.exams, &snapshot.course_exceptions))
         .map_err(|error| error.to_string())?
         .len();
     if extras_size > 2 * 1024 * 1024 {
@@ -927,6 +962,7 @@ mod tests {
             selection_assistant: serde_json::json!({"portalUrl": "https://jw.example.edu.cn/"}),
             course_exceptions: vec![serde_json::json!({"courseId":"course-1", "originalDate":"2026-09-21", "kind":"cancel"})],
             import_backup: None,
+            exams: vec![],
             grades: vec![
                 serde_json::json!({"id": "grade-1", "courseName": "高等数学", "score": "92"}),
             ],
@@ -943,6 +979,52 @@ mod tests {
         let snapshot = sample_snapshot();
         store.save(&snapshot).unwrap();
         assert_eq!(store.load().unwrap(), Some(snapshot));
+    }
+
+    fn sample_exam() -> serde_json::Value {
+        serde_json::json!({"id":"exam-1","title":"期末考试","date":"2026-12-25","startTime":"09:00","endTime":"11:00","location":"A301","seat":"12","note":"带证件","reminderMinutes":[1440,30]})
+    }
+
+    #[test]
+    fn exams_round_trip_independently_of_courses_and_term() {
+        let store = memory_store();
+        let mut snapshot = sample_snapshot();
+        snapshot.courses.clear();
+        snapshot.course_exceptions.clear();
+        snapshot.exams = vec![sample_exam()];
+        store.save(&snapshot).unwrap();
+        snapshot.teaching_starts_on = Some("2026-09-28".into());
+        store.save(&snapshot).unwrap();
+        assert_eq!(store.load().unwrap(), Some(snapshot));
+    }
+
+    #[test]
+    fn invalid_exam_never_overwrites_existing_snapshot() {
+        let store = memory_store();
+        let mut original = sample_snapshot();
+        original.exams = vec![sample_exam()];
+        store.save(&original).unwrap();
+        for (key, value) in [("date",serde_json::json!("2026-02-29")), ("endTime",serde_json::json!("08:00")), ("reminderMinutes",serde_json::json!([15,15])), ("seat",serde_json::json!(12))] {
+            let mut bad = original.clone();
+            bad.exams[0][key] = value;
+            assert!(store.save(&bad).is_err());
+            assert_eq!(store.load().unwrap(), Some(original.clone()));
+        }
+        let mut duplicate = original.clone(); duplicate.exams.push(sample_exam());
+        assert!(store.save(&duplicate).is_err());
+    }
+
+    #[test]
+    fn schema_eight_upgrades_with_empty_exams_and_preserves_data() {
+        let store = memory_store();
+        let original = sample_snapshot();
+        store.save(&original).unwrap();
+        let connection = store.connection.into_inner().unwrap();
+        connection.execute_batch("ALTER TABLE schedule_state DROP COLUMN exams_json; UPDATE schema_meta SET value = '8' WHERE key = 'schema_version';").unwrap();
+        let reopened = ScheduleStore::from_connection(connection).unwrap();
+        assert_eq!(reopened.load().unwrap(), Some(original));
+        let db = reopened.connection.lock().unwrap();
+        assert_eq!(db.query_row("SELECT value FROM schema_meta WHERE key = 'schema_version'", [], |row| row.get::<_, String>(0)).unwrap(), "9");
     }
 
     #[test]

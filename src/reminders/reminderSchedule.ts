@@ -11,6 +11,7 @@ export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
 };
 
 export interface ScheduledCourseReminder {
+  examId?: string;
   id: number;
   key: string;
   courseId: string;
@@ -96,7 +97,7 @@ function stableNotificationId(value: string): number {
 }
 
 export function isCourseReminderNotificationId(id: number): boolean {
-  return Number.isInteger(id) && id >= COURSE_NOTIFICATION_ID_MIN && id <= COURSE_NOTIFICATION_ID_MAX;
+  return Number.isInteger(id) && ((id >= COURSE_NOTIFICATION_ID_MIN && id <= COURSE_NOTIFICATION_ID_MAX) || (id >= 500000000 && id <= 599999999));
 }
 
 function validReminderMinutes(value: unknown): value is number {

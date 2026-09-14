@@ -603,6 +603,19 @@ fn validate_snapshot(snapshot: &ScheduleSnapshot) -> Result<(), String> {
             return Err("考试日期、时间或标识无效".into());
         }
         let reminders = exam.get("reminderMinutes").and_then(serde_json::Value::as_array).ok_or("考试提醒格式无效")?;
+        if let Some(value) = exam.get("studyTasks") {
+            let tasks = value.as_array().ok_or("复习清单格式无效")?;
+            if tasks.len() > 30 { return Err("每场考试最多 30 项复习任务".into()); }
+            let mut task_ids = HashSet::new();
+            for task in tasks {
+                let id = task.get("id").and_then(serde_json::Value::as_str).ok_or("复习任务标识无效")?;
+                let title = task.get("title").and_then(serde_json::Value::as_str).ok_or("复习任务名称无效")?;
+                if id.trim().is_empty() || id.encode_utf16().count() > 100 || !task_ids.insert(id)
+                    || title.trim().is_empty() || title.encode_utf16().count() > 100 || task.get("done").and_then(serde_json::Value::as_bool).is_none() {
+                    return Err("复习任务内容无效".into());
+                }
+            }
+        }
         let mut seen = HashSet::new();
         for value in reminders {
             let minutes = value.as_u64().ok_or("考试提醒无效")?;
@@ -1012,6 +1025,23 @@ mod tests {
         }
         let mut duplicate = original.clone(); duplicate.exams.push(sample_exam());
         assert!(store.save(&duplicate).is_err());
+    }
+
+    #[test]
+    fn study_tasks_round_trip_and_invalid_tasks_do_not_overwrite_data() {
+        let store = memory_store();
+        let mut original = sample_snapshot();
+        let mut exam = sample_exam();
+        let task = serde_json::json!({"id":"task-1","title":"复习第一章","done":true});
+        exam["studyTasks"] = serde_json::json!([task.clone()]);
+        original.exams = vec![exam];
+        store.save(&original).unwrap();
+        assert_eq!(store.load().unwrap(), Some(original.clone()));
+        for tasks in [serde_json::Value::Null, serde_json::json!([{"id":"x","title":" ","done":false}]), serde_json::json!([{"id":"x","title":"第一章","done":"true"}]), serde_json::json!([task.clone(),task.clone()]), serde_json::json!(vec![task;31])] {
+            let mut bad = original.clone(); bad.exams[0]["studyTasks"] = tasks;
+            assert!(store.save(&bad).is_err());
+            assert_eq!(store.load().unwrap(), Some(original.clone()));
+        }
     }
 
     #[test]

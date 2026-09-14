@@ -967,7 +967,7 @@ export function App() {
       <Presence>{examImportOpen && <ExamCalendarImportDialog exams={exams} onClose={()=>setExamImportOpen(false)} onImport={incoming=>{
         try { const next=mergeExams(exams,incoming); setSnapshot(current=>({...current,exams:next}));setExamImportOpen(false);setToast(`已添加 ${next.length-exams.length} 场考试，未覆盖原有记录`); } catch(error){setToast(error instanceof Error?error.message:'导入失败');}
       }} />}</Presence>
-      <Presence>{editingExam && <ExamEditorDialog exam={editingExam === 'new' ? undefined : editingExam} exams={exams} remindersEnabled={reminderSettings.enabled} onClose={() => setEditingExam(undefined)} onSave={exam => {
+      <Presence>{editingExam && <ExamEditorDialog courses={snapshot.courses} grades={snapshot.grades} exam={editingExam === 'new' ? undefined : editingExam} exams={exams} remindersEnabled={reminderSettings.enabled} onClose={() => setEditingExam(undefined)} onSave={exam => {
         try { const next = parseExams([...exams.filter(item => item.id !== exam.id), exam]); setSnapshot(current => ({ ...current, exams: next })); setEditingExam(undefined); setToast('考试已保存'); } catch (error) { setToast(String(error)); }
       }} onDelete={id => { setDeletedExam(exams.find(item => item.id === id)); setSnapshot(current => ({ ...current, exams: current.exams?.filter(item => item.id !== id) })); setEditingExam(undefined); setActivePage('考试'); setToast('考试已删除，可在考试中心撤销'); }} />}</Presence>
       <Presence>{changesOpen && <CourseChangesDialog courses={snapshot.courses} changes={snapshot.courseExceptions ?? []} calendar={calendar}

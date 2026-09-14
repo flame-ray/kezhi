@@ -1,3 +1,5 @@
+import { parseStudyTasks, type StudyTask } from './studyTasks';
+
 export interface ExamRecord {
   id: string;
   title: string;
@@ -8,6 +10,7 @@ export interface ExamRecord {
   seat: string;
   note: string;
   reminderMinutes: number[];
+  studyTasks?: StudyTask[];
 }
 
 export const EXAM_REMINDER_CHOICES = [1440, 60, 30, 15] as const;
@@ -21,6 +24,10 @@ export function localDateKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 export function examError(exam: ExamRecord): string | undefined {
+  if (exam.studyTasks !== undefined) {
+    try { parseStudyTasks(exam.studyTasks); }
+    catch (error) { return error instanceof Error ? error.message : '复习清单格式无效'; }
+  }
   if (!exam.id?.trim() || exam.id.length > 200 || !exam.title?.trim() || exam.title.length > 160) return '请填写考试名称（最多 160 字）';
   if (!validExamDate(exam.date)) return '请选择有效的考试日期（2000–2099 年）';
   if (![exam.startTime, exam.endTime].every(value => /^([01]\d|2[0-3]):[0-5]\d$/.test(value)) || exam.startTime >= exam.endTime) return '结束时间必须晚于开始时间';
@@ -34,6 +41,7 @@ export function parseExams(value: unknown): ExamRecord[] {
   return value.map(raw => {
     if (!raw || typeof raw !== 'object' || ['id','title','date','startTime','endTime','location','seat','note'].some(key => typeof raw[key] !== 'string')) throw new Error('考试记录缺少必要字段');
     const exam: ExamRecord = { id: raw.id, title: raw.title, date: raw.date, startTime: raw.startTime, endTime: raw.endTime, location: raw.location, seat: raw.seat, note: raw.note, reminderMinutes: raw.reminderMinutes };
+    if (raw.studyTasks !== undefined) exam.studyTasks = parseStudyTasks(raw.studyTasks);
     const error = examError(exam);
     if (error) throw new Error(error);
     if (ids.has(exam.id)) throw new Error('考试记录标识重复');
@@ -43,6 +51,15 @@ export function parseExams(value: unknown): ExamRecord[] {
 }
 export function examStart(exam: ExamRecord): Date { return new Date(`${exam.date}T${exam.startTime}:00`); }
 export function examEnd(exam: ExamRecord): Date { return new Date(`${exam.date}T${exam.endTime}:00`); }
+export type ExamFilter = 'upcoming' | 'study' | 'past' | 'all';
+export function filterExams(exams: ExamRecord[], filter: ExamFilter, query: string, now: Date): ExamRecord[] {
+  const search = query.trim().toLowerCase();
+  return exams.filter(exam => {
+    const upcoming = examEnd(exam) > now;
+    const matches = filter === 'all' || (filter === 'past' ? !upcoming : upcoming && (filter !== 'study' || exam.studyTasks?.some(task => !task.done)));
+    return matches && `${exam.title} ${exam.location} ${exam.note}`.toLowerCase().includes(search);
+  }).sort((a,b) => (filter === 'past' ? -1 : 1) * (examStart(a).getTime() - examStart(b).getTime()));
+}
 export function examState(exam: ExamRecord, now = new Date()): string {
   if (now >= examEnd(exam)) return '已结束';
   if (now >= examStart(exam)) return '考试中';

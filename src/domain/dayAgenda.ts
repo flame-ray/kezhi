@@ -1,5 +1,6 @@
 import { isTeachingDate, type ResolvedAcademicCalendar } from "./academicCalendar";
 import type { CourseMeeting, DayOfWeek, TimetablePreset } from "./schedule";
+import { MAX_ACADEMIC_WEEK, MIN_ACADEMIC_WEEK } from "./schedule";
 
 export interface AcademicDatePosition {
   week: number;
@@ -12,9 +13,13 @@ export function academicPositionForDate(date: Date, calendar: ResolvedAcademicCa
   const target = localNoon(date);
   const weekOne = localNoon(calendar.weekOneStartsOn);
   return {
-    week: Math.floor((target.getTime() - weekOne.getTime()) / (7 * 86_400_000)) + 1,
+    week: Math.floor((Date.UTC(target.getFullYear(), target.getMonth(), target.getDate()) - Date.UTC(weekOne.getFullYear(), weekOne.getMonth(), weekOne.getDate())) / (7 * 86_400_000)) + 1,
     day: (((target.getDay() + 6) % 7) + 1) as DayOfWeek,
   };
+}
+
+export function visibleAcademicWeek(date: Date, calendar: ResolvedAcademicCalendar): number {
+  return Math.min(MAX_ACADEMIC_WEEK, Math.max(MIN_ACADEMIC_WEEK, academicPositionForDate(date, calendar).week));
 }
 
 export function coursesForAcademicDate(courses: CourseMeeting[], calendar: ResolvedAcademicCalendar, date: Date): CourseMeeting[] {

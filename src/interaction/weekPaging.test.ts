@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { resistedWeekOffset, resolveWeekSwipe } from "./weekPaging";
+import { resistedWeekOffset, resolveWeekSwipe, releaseVelocity, weekSettleDuration } from "./weekPaging";
 
 describe("week paging gesture", () => {
+  it("forgets flick velocity after the finger pauses", () => {
+    expect(releaseVelocity(-1, 120)).toBe(0);
+    expect(releaseVelocity(-1, 16)).toBe(-1);
+  });
+  it("shortens settling for a flick without making reverse snap-back abrupt", () => {
+    expect(weekSettleDuration(-250, 390, -1.2)).toBeLessThan(weekSettleDuration(-250, 390, 0));
+    expect(weekSettleDuration(20, 390, -1)).toBe(weekSettleDuration(20, 390, 0));
+    expect(weekSettleDuration(-390, 390, -100)).toBeGreaterThanOrEqual(140);
+  });
   it("commits a page after crossing the distance threshold", () => {
     expect(resolveWeekSwipe({ offset: -90, velocity: -0.1, width: 390, canPrevious: true, canNext: true })).toBe(1);
     expect(resolveWeekSwipe({ offset: 90, velocity: 0.1, width: 390, canPrevious: true, canNext: true })).toBe(-1);

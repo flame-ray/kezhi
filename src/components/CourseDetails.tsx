@@ -15,6 +15,7 @@ interface CourseDetailsProps {
   onReminderChange: (minutes: number | undefined) => void;
   onOpenReminderSettings: () => void;
   onOccurrence?: () => void;
+  onLocation: (meeting: CourseMeeting) => void;
 }
 
 export function CourseDetails(props: CourseDetailsProps) {
@@ -23,7 +24,7 @@ export function CourseDetails(props: CourseDetailsProps) {
   return <MotionRegion className="desktop-course-details" motionKey={props.meeting?.id ?? "empty"}><CourseDetailContent {...props} /></MotionRegion>;
 }
 
-function CourseDetailContent({ meeting, preset, reminderSettings, onClose, onEdit, onReminderChange, onOpenReminderSettings, onOccurrence }: CourseDetailsProps) {
+function CourseDetailContent({ meeting, preset, reminderSettings, onClose, onEdit, onReminderChange, onOpenReminderSettings, onOccurrence, onLocation }: CourseDetailsProps) {
   if (!meeting) {
     return (
       <aside className="detail-panel detail-empty">
@@ -60,7 +61,7 @@ function CourseDetailContent({ meeting, preset, reminderSettings, onClose, onEdi
 
       <div className="detail-list">
         <div><Icon name="clock" /><span><strong>{dayNames[meeting.day - 1]} · 第{meeting.startPeriod}–{meeting.endPeriod}节</strong><small>{start}–{end}</small></span></div>
-        <div><Icon name="location" /><span><strong>{meeting.location}</strong><small>点击可复制教室</small></span></div>
+        <button className="detail-location-button" aria-label={`在地图上查看教室：${meeting.location || '未填写教室'}`} onClick={() => onLocation(meeting)}><Icon name="location" /><span><strong>{meeting.location || '未填写教室'}</strong><small>在校园地图上查看楼栋位置</small></span><Icon name="chevron-right" /></button>
         <div><Icon name="person" /><span><strong>{meeting.teacher}</strong><small>任课教师</small></span></div>
       </div>
 

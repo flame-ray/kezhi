@@ -91,7 +91,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(79, 99, 217,
 .calendar-scroll { flex: 1; min-height: 0; overflow: auto; scrollbar-color: #c9cdd8 transparent; scrollbar-width: thin; }
 .week-swipe-viewport { flex: 1; min-height: 0; overflow: hidden; touch-action: pan-y; }
 .week-swipe-track { display: flex; width: 100%; height: 100%; contain: layout style; backface-visibility: hidden; will-change: transform; transform: translate3d(calc(-100% + var(--week-drag, 0px)), 0, 0); transition: none; }
-.week-swipe-track.settling { transition: transform var(--week-duration, 260ms) cubic-bezier(.2, 0, 0, 1); }
+.week-swipe-track.settling { transition: none; }
 .week-page { flex: 0 0 100%; width: 100%; height: 100%; min-width: 0; contain: layout paint style; backface-visibility: hidden; overscroll-behavior: contain; transform: translateZ(0); }
 .week-page:not(.active-page) { pointer-events: none; }
 .week-page:not(.active-page) .course-card { transition: none; }

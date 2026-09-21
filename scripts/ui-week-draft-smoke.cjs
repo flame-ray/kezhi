@@ -10,6 +10,7 @@ fs.mkdirSync(out,{recursive:true});
   await context.route("**/*",r=>new URL(r.request().url()).origin===base?r.continue():r.abort());
   const page=await context.newPage(),errors=[];
   page.on("pageerror",e=>errors.push(e.message));
+  await page.clock.setFixedTime(new Date('2026-09-20T12:00:00+08:00'));
   await page.goto(base);
   await page.evaluate(async()=>{
     const {defaultPresets}=await import("/src/data/demo.ts");

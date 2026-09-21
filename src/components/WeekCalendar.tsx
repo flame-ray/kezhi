@@ -8,8 +8,9 @@ import {
   useState,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
-  type TransitionEvent as ReactTransitionEvent,
 } from "react";
+import { flushSync } from "react-dom";
+import { sameLocalDate } from "../domain/dayAgenda";
 import type { CourseMeeting, DayOfWeek, TimetablePreset, WeekView } from "../domain/schedule";
 import { alternatingWeekLabel } from "../domain/weekPattern";
 import {
@@ -17,7 +18,7 @@ import {
   LONG_PRESS_FEEDBACK_MS,
   shouldCancelLongPress,
 } from "../interaction/longPress";
-import { resistedWeekOffset, resolveWeekSwipe, type WeekDelta } from "../interaction/weekPaging";
+import { resistedWeekOffset, resolveWeekSwipe, weekSettleDuration, releaseVelocity, type WeekDelta } from "../interaction/weekPaging";
 import { Icon } from "../ui/Icon";
 import { Presence, reducedMotion } from "../ui/Motion";
 import { DialogSurface } from "../ui/DialogSurface";
@@ -25,13 +26,12 @@ import { groupWeekCards, type WeekCardGroup } from "../domain/weekCardGroups";
 
 const dayNames = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 const shortDayNames = ["一", "二", "三", "四", "五", "六", "日"];
-const MIN_PAGE_TRANSITION_MS = 190;
-const MAX_PAGE_TRANSITION_MS = 310;
 
 export interface WeekCalendarHandle { cancelDraft: () => boolean; cancelOverlay: () => boolean; }
 interface DraftRange { day: DayOfWeek; startPeriod: number; endPeriod: number; }
 
 interface WeekCalendarProps {
+  today: Date;
   view: WeekView;
   previousView: WeekView;
   nextView: WeekView;
@@ -46,6 +46,7 @@ interface WeekCalendarProps {
 }
 
 export const WeekCalendar = forwardRef<WeekCalendarHandle, WeekCalendarProps>(function WeekCalendar({
+  today,
   view,
   previousView,
   nextView,
@@ -79,6 +80,7 @@ export const WeekCalendar = forwardRef<WeekCalendarHandle, WeekCalendarProps>(fu
   const nextPageRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | undefined>(undefined);
   const transitionTimerRef = useRef<number | undefined>(undefined);
+  const settleAnimationRef = useRef<Animation | undefined>(undefined);
   const transitioningRef = useRef(false);
   const gestureRef = useRef<{
     pointerId: number;
@@ -88,6 +90,7 @@ export const WeekCalendar = forwardRef<WeekCalendarHandle, WeekCalendarProps>(fu
     lastAt: number;
     velocity: number;
     horizontal: boolean;
+    width: number;
   } | undefined>(undefined);
   const settlingDelta = useRef<WeekDelta>(0);
   const dragOffsetRef = useRef(0);
@@ -123,17 +126,23 @@ export const WeekCalendar = forwardRef<WeekCalendarHandle, WeekCalendarProps>(fu
     const delta = settlingDelta.current;
     settlingDelta.current = 0;
     const track = trackRef.current;
-    track?.classList.remove("settling");
-    markSwiping(false);
     if (delta !== 0) {
-      onChangeWeek(delta);
+      // Keep the final animation frame until React has replaced all three pages.
+      // The layout effect recenters before paint, so the old page never flashes.
+      flushSync(() => onChangeWeek(delta));
       return;
     }
+    settleAnimationRef.current?.cancel();
+    settleAnimationRef.current = undefined;
+    track?.classList.remove("settling");
+    markSwiping(false);
     dragOffsetRef.current = 0;
     writeTrackOffset(0);
   };
 
   useLayoutEffect(() => {
+    settleAnimationRef.current?.cancel();
+    settleAnimationRef.current = undefined;
     gestureRef.current = undefined;
     settlingDelta.current = 0;
     markSwiping(false);
@@ -147,6 +156,7 @@ export const WeekCalendar = forwardRef<WeekCalendarHandle, WeekCalendarProps>(fu
   }, [view.week]);
 
   useEffect(() => () => {
+    settleAnimationRef.current?.cancel();
     cancelAnimationFrame();
     if (transitionTimerRef.current !== undefined) window.clearTimeout(transitionTimerRef.current);
   }, []);
@@ -166,6 +176,7 @@ export const WeekCalendar = forwardRef<WeekCalendarHandle, WeekCalendarProps>(fu
       lastAt: event.timeStamp,
       velocity: 0,
       horizontal: false,
+      width: viewportRef.current?.clientWidth ?? window.innerWidth,
     };
   };
 
@@ -190,8 +201,7 @@ export const WeekCalendar = forwardRef<WeekCalendarHandle, WeekCalendarProps>(fu
     gesture.velocity = gesture.velocity === 0 ? instantVelocity : gesture.velocity * .55 + instantVelocity * .45;
     gesture.lastX = event.clientX;
     gesture.lastAt = event.timeStamp;
-    const width = viewportRef.current?.clientWidth ?? window.innerWidth;
-    const nextOffset = resistedWeekOffset(deltaX, width, canGoPrevious, canGoNext);
+    const nextOffset = resistedWeekOffset(deltaX, gesture.width, canGoPrevious, canGoNext);
     scheduleTrackOffset(nextOffset);
   };
 
@@ -200,32 +210,16 @@ export const WeekCalendar = forwardRef<WeekCalendarHandle, WeekCalendarProps>(fu
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     gestureRef.current = undefined;
     if (!gesture.horizontal) return;
-    const width = viewportRef.current?.clientWidth ?? window.innerWidth;
+    const width = gesture.width;
+    const velocity = releaseVelocity(gesture.velocity, event.timeStamp - gesture.lastAt);
     const delta = resolveWeekSwipe({
       offset: dragOffsetRef.current,
-      velocity: gesture.velocity,
+      velocity,
       width,
       canPrevious: canGoPrevious,
       canNext: canGoNext,
     });
-    settlingDelta.current = delta;
-    transitioningRef.current = true;
-    markSwiping(false);
-    cancelAnimationFrame();
-    writeTrackOffset(dragOffsetRef.current);
-    const targetOffset = delta === 1 ? -width : delta === -1 ? width : 0;
-    const remainingRatio = Math.min(1, Math.abs(targetOffset - dragOffsetRef.current) / Math.max(1, width));
-    const duration = reducedMotion() ? 0 : Math.round(MIN_PAGE_TRANSITION_MS + (MAX_PAGE_TRANSITION_MS - MIN_PAGE_TRANSITION_MS) * remainingRatio);
-    const track = trackRef.current;
-    track?.style.setProperty("--week-duration", `${duration}ms`);
-    track?.classList.add("settling");
-    void track?.offsetWidth;
-    animationFrameRef.current = window.requestAnimationFrame(() => {
-      animationFrameRef.current = undefined;
-      dragOffsetRef.current = targetOffset;
-      writeTrackOffset(targetOffset);
-    });
-    transitionTimerRef.current = window.setTimeout(completeTransition, duration + 100);
+    settleSwipe(delta, width, velocity);
   };
 
   const cancelSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -233,26 +227,27 @@ export const WeekCalendar = forwardRef<WeekCalendarHandle, WeekCalendarProps>(fu
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     gestureRef.current = undefined;
     if (!gesture.horizontal) return;
-    settlingDelta.current = 0;
-    transitioningRef.current = true;
-    markSwiping(false);
-    cancelAnimationFrame();
-    writeTrackOffset(dragOffsetRef.current);
-    const track = trackRef.current;
-    track?.style.setProperty("--week-duration", `${MIN_PAGE_TRANSITION_MS}ms`);
-    track?.classList.add("settling");
-    void track?.offsetWidth;
-    animationFrameRef.current = window.requestAnimationFrame(() => {
-      animationFrameRef.current = undefined;
-      dragOffsetRef.current = 0;
-      writeTrackOffset(0);
-    });
-    transitionTimerRef.current = window.setTimeout(completeTransition, MIN_PAGE_TRANSITION_MS + 100);
+    settleSwipe(0, gesture.width, 0);
   };
 
-  const finishTransition = (event: ReactTransitionEvent<HTMLDivElement>) => {
-    if (event.target !== event.currentTarget || event.propertyName !== "transform") return;
-    completeTransition();
+  const settleSwipe = (delta: WeekDelta, width: number, velocity: number) => {
+    settlingDelta.current = delta;
+    transitioningRef.current = true;
+    cancelAnimationFrame();
+    const from = dragOffsetRef.current;
+    const to = -delta * width;
+    const track = trackRef.current;
+    const duration = reducedMotion() ? 0 : weekSettleDuration(to - from, width, velocity);
+    if (!track || !duration) { completeTransition(); return; }
+    track.classList.add('settling');
+    // Explicit compositor keyframes avoid a forced layout and extra RAF on release.
+    const transform = (offset: number) => `translate3d(calc(-100% + ${offset}px),0,0)`;
+    const animation = track.animate([{transform: transform(from)}, {transform: transform(to)}], {
+      duration, easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'forwards',
+    });
+    settleAnimationRef.current = animation;
+    animation.onfinish = completeTransition;
+    transitionTimerRef.current = window.setTimeout(completeTransition, duration + 100);
   };
 
   return (
@@ -263,13 +258,15 @@ export const WeekCalendar = forwardRef<WeekCalendarHandle, WeekCalendarProps>(fu
       onPointerMove={moveSwipe}
       onPointerUp={finishSwipe}
       onPointerCancel={cancelSwipe}
+      onLostPointerCapture={event => { if (event.target === event.currentTarget) cancelSwipe(event); }}
     >
-      <div ref={trackRef} className="week-swipe-track" onTransitionEnd={finishTransition}>
+      <div ref={trackRef} className="week-swipe-track">
         <div ref={previousPageRef} className="calendar-scroll week-page" aria-hidden="true">
-          <CalendarGrid view={previousView} preset={preset} interactive={false} />
+          <CalendarGrid today={today} view={previousView} preset={preset} interactive={false} />
         </div>
         <div ref={activePageRef} className="calendar-scroll week-page active-page">
           <CalendarGrid
+            today={today}
             view={view}
             preset={preset}
             selectedId={selectedId}
@@ -283,7 +280,7 @@ export const WeekCalendar = forwardRef<WeekCalendarHandle, WeekCalendarProps>(fu
           />
         </div>
         <div ref={nextPageRef} className="calendar-scroll week-page" aria-hidden="true">
-          <CalendarGrid view={nextView} preset={preset} interactive={false} />
+          <CalendarGrid today={today} view={nextView} preset={preset} interactive={false} />
         </div>
       </div>
       {draft && <div className="course-range-picker" role="group" aria-label="调整课程时间">
@@ -320,6 +317,7 @@ export const WeekCalendar = forwardRef<WeekCalendarHandle, WeekCalendarProps>(fu
 });
 
 interface CalendarGridProps {
+  today: Date;
   view: WeekView;
   preset: TimetablePreset;
   selectedId?: string;
@@ -332,11 +330,10 @@ interface CalendarGridProps {
   onShowOverlap?: (group: WeekCardGroup) => void;
 }
 
-const CalendarGrid = memo(function CalendarGrid({ view, preset, selectedId, interactive, onSelect, onMove, onCreate, draft, onDraft, onShowOverlap }: CalendarGridProps) {
+const CalendarGrid = memo(function CalendarGrid({ today, view, preset, selectedId, interactive, onSelect, onMove, onCreate, draft, onDraft, onShowOverlap }: CalendarGridProps) {
   const draftClickArmed = useRef(false);
   useEffect(() => { draftClickArmed.current = false; }, [draft]);
   const groups = groupWeekCards(view);
-  const today = new Date();
   const rowCount = preset.periods.length;
 
   return (
@@ -350,18 +347,17 @@ const CalendarGrid = memo(function CalendarGrid({ view, preset, selectedId, inte
       </div>
 
       {view.days.map(({ day, date }) => {
-        const isToday =
-          today.getFullYear() === date.getFullYear() &&
-          today.getMonth() === date.getMonth() &&
-          today.getDate() === date.getDate();
+        const isToday = sameLocalDate(today, date);
         return (
           <div
             className={`day-heading ${isToday ? "today" : ""}`}
+            aria-current={isToday ? 'date' : undefined}
+            aria-label={`${dateLabel(date)} ${isToday ? '今天' : dayNames[day - 1]}`}
             style={{ gridColumn: day + 1, gridRow: 1 }}
             key={day}
           >
-            <span className="day-name-long">{dayNames[day - 1]}</span>
-            <span className="day-name-short" aria-hidden="true">{shortDayNames[day - 1]}</span>
+            <span className="day-name-long">{isToday ? '今天' : dayNames[day - 1]}</span>
+            <span className="day-name-short" aria-hidden="true">{isToday ? '今天' : shortDayNames[day - 1]}</span>
             <strong>{date.getMonth() + 1}/{date.getDate()}</strong>
           </div>
         );
@@ -382,9 +378,11 @@ const CalendarGrid = memo(function CalendarGrid({ view, preset, selectedId, inte
       {view.days.flatMap(({ day, date }) =>
         preset.periods.map((period) => {
           const style = { gridColumn: day + 1, gridRow: period.index + 1 };
-          if (!interactive) return <span className="calendar-cell preview-cell" style={style} key={`${day}-${period.index}`} />;
+          const isToday = sameLocalDate(today, date);
+          if (!interactive) return <span className={`calendar-cell preview-cell ${isToday ? 'today-cell' : ''}`} style={style} key={`${day}-${period.index}`} />;
           return (
             <CalendarCell
+              isToday={isToday}
               style={style}
               key={`${day}-${period.index}`}
               label={`${dayNames[day - 1]} ${dateLabel(date)} 第 ${period.index} 节`}
@@ -451,13 +449,14 @@ const CalendarGrid = memo(function CalendarGrid({ view, preset, selectedId, inte
 });
 
 interface CalendarCellProps {
+  isToday: boolean;
   style: CSSProperties;
   label: string;
   onCreate?: () => void;
   onMove?: (id: string) => void;
 }
 
-function CalendarCell({ style, label, onCreate, onMove }: CalendarCellProps) {
+function CalendarCell({ isToday, style, label, onCreate, onMove }: CalendarCellProps) {
   const timerRef = useRef<number | undefined>(undefined);
   const feedbackTimerRef = useRef<number | undefined>(undefined);
   const originRef = useRef<{ x: number; y: number } | undefined>(undefined);
@@ -496,7 +495,7 @@ function CalendarCell({ style, label, onCreate, onMove }: CalendarCellProps) {
     <button
       type="button"
       tabIndex={onCreate ? 0 : -1}
-      className={`calendar-cell ${pressing ? "long-pressing" : ""}`}
+      className={`calendar-cell ${isToday ? 'today-cell' : ''} ${pressing ? "long-pressing" : ""}`}
       style={style}
       aria-label={onCreate ? `${label}，按住约 0.8 秒添加课程` : label}
       onPointerDown={(event) => {

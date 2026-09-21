@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CourseDetails } from "./components/CourseDetails";
+import { CampusMapDialog } from "./components/CampusMapDialog";
 import { CourseOccurrenceDialog } from "./components/CourseOccurrenceDialog";
 import { CourseChangesDialog } from "./components/CourseChangesDialog";
 import { ImportBackupDialog } from "./components/ImportBackupDialog";
@@ -28,7 +29,7 @@ import { TodayAgenda } from "./components/TodayAgenda";
 import { WeekCalendar, type WeekCalendarHandle } from "./components/WeekCalendar";
 import { defaultPresets } from "./data/demo";
 import { alignImportedWeeks, dateForCourse, normalizeAcademicCalendar, resolveAcademicCalendar, suggestAcademicCalendar } from "./domain/academicCalendar";
-import { academicPositionForDate } from "./domain/dayAgenda";
+import { sameLocalDate, visibleAcademicWeek } from "./domain/dayAgenda";
 import { MAX_ACADEMIC_WEEK, MIN_ACADEMIC_WEEK, type CourseMeeting, type DayOfWeek, type ScheduleSnapshot, type TimetablePreset } from "./domain/schedule";
 import { mergeGrades, normalizeGrades, type GradeRecord } from "./grades/gradeCenter";
 import { activePreset, buildWeekView, formatWeekRange, moveMeeting } from "./domain/scheduleEngine";
@@ -93,8 +94,11 @@ function initialTheme(): AppTheme {
 export function App() {
   const [snapshot, setSnapshot] = useState<ScheduleSnapshot>(initialSnapshot);
   const [activePage, setActivePage] = useState<PrimaryPage>("课表");
-  const [week, setWeek] = useState(1);
+  const [today, setToday] = useState(() => new Date());
+  const [week, setWeek] = useState(() => visibleAcademicWeek(new Date(), resolveAcademicCalendar(normalizeAcademicCalendar(snapshot))));
   const [selectedId, setSelectedId] = useState<string>();
+  const [campusTarget, setCampusTarget] = useState<{location:string;courseTitle:string}>();
+  const openCourseLocation = (meeting: CourseMeeting) => setCampusTarget({location:meeting.location,courseTitle:meeting.title});
   const [timetableOpen, setTimetableOpen] = useState(false);
   const [editingCourse, setEditingCourse] = useState<CourseMeeting | "new">();
   const [occurrenceOpen, setOccurrenceOpen] = useState<{ course: CourseMeeting; date: string }>();
@@ -146,7 +150,28 @@ export function App() {
   const selectionAssistant = normalizeSelectionAssistant(snapshot.selectionAssistant);
   const grades = normalizeGrades(snapshot.grades);
   const exams = useMemo(() => parseExams(snapshot.exams), [snapshot.exams]);
-  const currentAcademicWeek = Math.min(MAX_ACADEMIC_WEEK, Math.max(MIN_ACADEMIC_WEEK, academicPositionForDate(new Date(), calendar).week));
+  const currentAcademicWeek = visibleAcademicWeek(today, calendar);
+  // Re-align after native storage hydration, changing calendars, or a new local day.
+  // Ordinary course edits and manual week browsing do not trigger this effect.
+  useEffect(() => {
+    setWeek(currentAcademicWeek);
+    setSelectedId(undefined);
+  }, [calendar, today, currentAcademicWeek]);
+  useEffect(() => {
+    let timer: number;
+    const refresh = () => {
+      window.clearTimeout(timer);
+      const now = new Date();
+      setToday(previous => sameLocalDate(previous, now) ? previous : now);
+      const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      timer = window.setTimeout(refresh, midnight.getTime() - now.getTime() + 50);
+    };
+    const resume = () => { if (document.visibilityState === 'visible') refresh(); };
+    refresh();
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', resume);
+    return () => { window.clearTimeout(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', resume); };
+  }, []);
   const reminderSettings = normalizeReminderSettings(snapshot.reminderSettings);
   const hasCourses = snapshot.courses.length > 0;
   const isLocalSchedule = snapshot.schoolName === "本地课表";
@@ -156,6 +181,7 @@ export function App() {
 
   appBackHandlerRef.current = () => {
     if (returningHome.current) return;
+    if (campusTarget) { rootBackGate.current.reset(); setCampusTarget(undefined); return; }
     if (editingExam || examImportOpen || updateOpen || occurrenceOpen || changesOpen || backupOpen) rootBackGate.current.reset();
     if (examImportOpen) { setExamImportOpen(false); return; }
     if (editingExam) { setEditingExam(undefined); return; }
@@ -333,6 +359,7 @@ export function App() {
       const importBackup = createImportSafetyBackup(snapshot, reason);
       const next = transform(snapshot);
       setSnapshot({ ...next, importBackup });
+      setWeek(visibleAcademicWeek(new Date(), resolveAcademicCalendar(normalizeAcademicCalendar(next))));
       return true;
     } catch (error) {
       setToast(error instanceof Error ? error.message : "导入前备份失败，未覆盖课表");
@@ -886,6 +913,7 @@ export function App() {
             <div className="workspace">
               <section className="calendar-panel">
                 <WeekCalendar
+                  today={today}
                   view={view}
                   previousView={previousView}
                   nextView={nextView}
@@ -902,14 +930,14 @@ export function App() {
                 {!hasCourses && <EmptySchedule onImport={() => setImportOpen(true)} onCreate={() => openNewCourse()} />}
                 <div className="calendar-hint"><span className="hint-dot" />左右滑动切周 · 长按空白格，用箭头调时间后点 ＋ · 淡色为非本周或未开课</div>
               </section>
-              <CourseDetails meeting={selected} preset={preset} reminderSettings={reminderSettings} onClose={() => setSelectedId(undefined)} onEdit={() => selectedBase && setEditingCourse(selectedBase)} onOccurrence={openSelectedOccurrence} onReminderChange={(minutes) => selectedBase && updateCourseReminder(selectedBase.id, minutes)} onOpenReminderSettings={() => setSettingsOpen(true)} />
+              <CourseDetails meeting={selected} preset={preset} reminderSettings={reminderSettings} onClose={() => setSelectedId(undefined)} onEdit={() => selectedBase && setEditingCourse(selectedBase)} onOccurrence={openSelectedOccurrence} onReminderChange={(minutes) => selectedBase && updateCourseReminder(selectedBase.id, minutes)} onOpenReminderSettings={() => setSettingsOpen(true)} onLocation={openCourseLocation} />
             </div>
           </div>
         ) : activePage === "今天" ? (
           <div className="view-stage today-view-stage" key="today">
             <div className="workspace today-workspace">
               <TodayAgenda exams={exams} onOpenExams={() => { setSelectedId(undefined); setActivePage('考试'); }} onEditExam={setEditingExam} courses={effectiveCourses} preset={preset} calendar={calendar} onSelect={(meeting, date) => { setSelectedId(meeting.id); setSelectedDate(occurrenceDateKey(date)); }} onCreate={(day, startPeriod) => openNewCourse({ day, startPeriod })} onOpenWeek={(nextWeek) => { changeWeek(nextWeek); setActivePage("课表"); }} />
-              <CourseDetails meeting={selected} preset={preset} reminderSettings={reminderSettings} onClose={() => setSelectedId(undefined)} onEdit={() => selectedBase && setEditingCourse(selectedBase)} onOccurrence={openSelectedOccurrence} onReminderChange={(minutes) => selectedBase && updateCourseReminder(selectedBase.id, minutes)} onOpenReminderSettings={() => setSettingsOpen(true)} />
+              <CourseDetails meeting={selected} preset={preset} reminderSettings={reminderSettings} onClose={() => setSelectedId(undefined)} onEdit={() => selectedBase && setEditingCourse(selectedBase)} onOccurrence={openSelectedOccurrence} onReminderChange={(minutes) => selectedBase && updateCourseReminder(selectedBase.id, minutes)} onOpenReminderSettings={() => setSettingsOpen(true)} onLocation={openCourseLocation} />
             </div>
           </div>
         ) : activePage === "考试" ? (
@@ -967,6 +995,7 @@ export function App() {
       <Presence>{examImportOpen && <ExamCalendarImportDialog exams={exams} onClose={()=>setExamImportOpen(false)} onImport={incoming=>{
         try { const next=mergeExams(exams,incoming); setSnapshot(current=>({...current,exams:next}));setExamImportOpen(false);setToast(`已添加 ${next.length-exams.length} 场考试，未覆盖原有记录`); } catch(error){setToast(error instanceof Error?error.message:'导入失败');}
       }} />}</Presence>
+      <Presence>{campusTarget && <CampusMapDialog location={campusTarget.location} courseTitle={campusTarget.courseTitle} onClose={() => setCampusTarget(undefined)} />}</Presence>
       <Presence>{editingExam && <ExamEditorDialog courses={snapshot.courses} grades={snapshot.grades} exam={editingExam === 'new' ? undefined : editingExam} exams={exams} remindersEnabled={reminderSettings.enabled} onClose={() => setEditingExam(undefined)} onSave={exam => {
         try { const next = parseExams([...exams.filter(item => item.id !== exam.id), exam]); setSnapshot(current => ({ ...current, exams: next })); setEditingExam(undefined); setToast('考试已保存'); } catch (error) { setToast(String(error)); }
       }} onDelete={id => { setDeletedExam(exams.find(item => item.id === id)); setSnapshot(current => ({ ...current, exams: current.exams?.filter(item => item.id !== id) })); setEditingExam(undefined); setActivePage('考试'); setToast('考试已删除，可在考试中心撤销'); }} />}</Presence>
@@ -975,7 +1004,7 @@ export function App() {
         onEdit={change => { const course = snapshot.courses.find(item => item.id === change.courseId); if (course) setOccurrenceOpen({ course, date: change.originalDate }); }}
         onUndo={change => { setSnapshot(current => ({ ...current, courseExceptions: current.courseExceptions?.filter(item => item.courseId !== change.courseId || item.originalDate !== change.originalDate) })); setToast("已撤销这条记录"); }} />}</Presence>
       <Presence>{backupOpen && <ImportBackupDialog snapshot={snapshot} onClose={() => setBackupOpen(false)} onRestore={() => {
-        try { setSnapshot(normalizeSnapshot(restoreImportSafetyBackup(snapshot))); setBackupOpen(false); setSettingsOpen(false); setSelectedId(undefined); setWeek(1); setToast("已恢复导入前课表；当前课表已保留为新的回退副本"); }
+        try { const restored = normalizeSnapshot(restoreImportSafetyBackup(snapshot)); setSnapshot(restored); setBackupOpen(false); setSettingsOpen(false); setSelectedId(undefined); setWeek(visibleAcademicWeek(new Date(), resolveAcademicCalendar(normalizeAcademicCalendar(restored)))); setToast("已恢复导入前课表；当前课表已保留为新的回退副本"); }
         catch (error) { setToast(error instanceof Error ? error.message : "恢复失败，未更改课表"); }
       }} />}</Presence>
 
@@ -1067,7 +1096,6 @@ export function App() {
           onRestore={(restored) => {
             if (!importWithRecovery("JSON 备份导入前", current => normalizeSnapshot({ ...restored, exams: restored.exams ?? current.exams }))) return;
             setImportOpen(false);
-            setWeek(1);
             setToast(`已恢复 ${restored.courses.length} 条课程记录`);
           }}
           onStartCalendarImport={() => {
@@ -1113,7 +1141,6 @@ export function App() {
             if (!imported) return;
             setCalendarImportOpen(false);
             setActivePage("课表");
-            setWeek(1);
             setSelectedId(undefined);
             setToast(`已从日历${mode === "replace" ? "导入" : "合并"} ${courses.length} 门课程`);
           }}

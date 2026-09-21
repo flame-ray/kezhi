@@ -122,6 +122,9 @@ button:disabled:hover { transform: none; }
 :root :is(.calendar-corner,.day-heading,.period-label) { color: var(--muted); background: var(--surface); backdrop-filter: none; }
 :root .day-heading strong, :root .period-label strong { color: var(--text); }
 :root .day-heading.today strong { background: var(--primary); color: var(--on-primary); box-shadow: none; }
+:root .day-heading.today { color: var(--primary); background: var(--primary-container); box-shadow: inset 0 -3px var(--primary); }
+:root .calendar-cell.today-cell { background: color-mix(in srgb,var(--primary) 7%,var(--surface)); }
+:root .calendar-cell.today-cell.long-pressing { background: color-mix(in srgb,var(--primary) 16%,var(--surface)); }
 :root .calendar-cell { border-color: color-mix(in srgb,var(--outline) 60%,transparent); transition: background-color var(--motion-short) ease; }
 :root .calendar-hint { background: var(--surface); color: var(--muted); font-size: 11px; }
 :root .course-card { color: var(--text); border: 0; border-radius: 12px; box-shadow: inset 3px 0 var(--course-accent); transition: transform 160ms var(--ease-standard); filter: none; }

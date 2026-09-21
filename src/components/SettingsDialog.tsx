@@ -18,6 +18,8 @@ interface SettingsDialogProps {
   onOpenBackup?: () => void;
   onOpenExams?: () => void;
   onCheckUpdate?: () => void;
+  onPinWidget?: () => Promise<string>;
+  widgetStatus?: string;
 }
 
 const reminderChoices = [5, 10, 15, 20, 30, 45, 60];
@@ -37,9 +39,20 @@ export function SettingsDialog({
   onOpenBackup,
   onOpenExams,
   onCheckUpdate,
+  onPinWidget,
+  widgetStatus,
 }: SettingsDialogProps) {
   const [busy, setBusy] = useState(false);
   const [contactMessage, setContactMessage] = useState("");
+  const [widgetBusy, setWidgetBusy] = useState(false);
+  const [widgetMessage, setWidgetMessage] = useState('');
+  const addWidget = async () => {
+    if (!onPinWidget || widgetBusy) return;
+    setWidgetBusy(true);
+    try { setWidgetMessage(await onPinWidget()); }
+    catch { setWidgetMessage('无法添加，请检查课表已加载后重试；也可从手机桌面的小组件列表添加课织。'); }
+    finally { setWidgetBusy(false); }
+  };
   const copyContact = async (label: string, value: string) => {
     try { await navigator.clipboard.writeText(value); setContactMessage(`${label}已复制`); }
     catch { setContactMessage("系统不允许自动复制，请长按下方联系方式手动复制"); }
@@ -84,6 +97,15 @@ export function SettingsDialog({
             <small>反馈时请勿发送密码、验证码或包含个人隐私的截图。</small>
           </section>
           {onCheckUpdate && <button className="settings-toggle-card" onClick={onCheckUpdate}><span className="settings-icon"><Icon name="shield" /></span><span className="settings-toggle-copy"><strong>检查更新</strong><small>当前版本 {version} · 查看官方新版说明</small></span><Icon name="chevron-right" /></button>}
+          {onPinWidget && <section aria-label="桌面小组件">
+            <button className="settings-toggle-card" onClick={() => void addWidget()} disabled={widgetBusy}>
+              <span className="settings-icon"><Icon name="calendar" /></span>
+              <span className="settings-toggle-copy"><strong>{widgetBusy ? '正在准备…' : '添加桌面小组件'}</strong><small>今天课程与下一节课 · 点击回到课织</small></span>
+              <Icon name="plus" />
+            </button>
+            <p className="contact-copy-status" role="status">{widgetMessage || widgetStatus}</p>
+            <div className="settings-note"><Icon name="shield" /><span><strong>课程仅保存在本机</strong><small>课程与教室会显示在手机桌面。支持随系统明暗主题切换和调整大小；修改课表后自动同步。系统省电可能延迟刷新，点击小组件右上角 ↻ 可手动更新。</small></span></div>
+          </section>}
           {onOpenExams && <button className="settings-toggle-card" onClick={onOpenExams}><span className="settings-icon"><Icon name="calendar" /></span><span className="settings-toggle-copy"><strong>考试中心</strong><small>考试日期、考场、倒计时与提醒</small></span><Icon name="chevron-right" /></button>}
           {onOpenChanges && <button className="settings-toggle-card" onClick={onOpenChanges}><span className="settings-icon"><Icon name="clock" /></span><span className="settings-toggle-copy"><strong>调课记录中心</strong><small>查看、修改或撤销单次调课／停课</small></span><Icon name="chevron-right" /></button>}
           {onOpenBackup && <button className="settings-toggle-card" onClick={onOpenBackup}><span className="settings-icon"><Icon name="shield" /></span><span className="settings-toggle-copy"><strong>导入前自动备份</strong><small>恢复上一次导入前的课表</small></span><Icon name="chevron-right" /></button>}

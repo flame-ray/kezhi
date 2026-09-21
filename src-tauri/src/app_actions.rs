@@ -29,3 +29,20 @@ pub(crate) fn init<R: Runtime>() -> TauriPlugin<R> {
         Ok(())
     }).build()
 }
+
+#[tauri::command]
+pub(crate) async fn sync_course_widget(app: tauri::AppHandle, content: String) -> Result<(), String> {
+    if content.len() > 4 * 1024 * 1024 { return Err("小组件数据过大".into()); }
+    #[cfg(target_os = "android")]
+    { tauri::async_runtime::spawn_blocking(move || app.state::<AppActions<tauri::Wry>>().0.run_mobile_plugin::<()>("syncCourseWidget", serde_json::json!({"content":content})).map_err(|error| error.to_string())).await.map_err(|error| error.to_string())? }
+    #[cfg(not(target_os = "android"))]
+    { let _ = (app, content); Err("桌面小组件仅支持 Android".into()) }
+}
+
+#[tauri::command]
+pub(crate) async fn pin_course_widget(app: tauri::AppHandle) -> Result<bool, String> {
+    #[cfg(target_os = "android")]
+    { tauri::async_runtime::spawn_blocking(move || app.state::<AppActions<tauri::Wry>>().0.run_mobile_plugin::<bool>("pinCourseWidget", ()).map_err(|error| error.to_string())).await.map_err(|error| error.to_string())? }
+    #[cfg(not(target_os = "android"))]
+    { let _ = app; Err("桌面小组件仅支持 Android".into()) }
+}

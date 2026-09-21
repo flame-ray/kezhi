@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import mapImage from '../../assets/campus-map/campus-overview-v1.png';
+import mapImage from '../../assets/campus-map/campus-overview-v2.png';
 import { campusPlaces, MAP_SIZE, placeById, placeCenter, resolveCampusPlace } from '../campus/campusMap';
 import { DialogSurface } from '../ui/DialogSurface';
 import { Icon } from '../ui/Icon';

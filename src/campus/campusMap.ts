@@ -1,4 +1,4 @@
-// Coordinates belong to assets/campus-map/campus-overview-v1.png, not GPS.
+// Coordinates belong to assets/campus-map/campus-overview-v2.png, not GPS.
 export interface MapPoint { x: number; y: number }
 export interface CampusPlace { id: string; name: string; aliases?: string[]; box: [number, number, number, number]; closed?: boolean }
 export const MAP_SIZE = 1254;
@@ -28,7 +28,7 @@ export const campusPlaces: CampusPlace[] = [
   {id:'clinical',name:'临床实验（实训）中心楼',aliases:['临床实验中心楼','临床实训中心楼'],box:[85,956,151,71]},
   {id:'medical',name:'基础医学实验（实训）中心楼',aliases:['基础医学实验中心楼','基础医学实训中心楼'],box:[147,1025,151,63]},
   {id:'south-office',name:'南行政楼',box:[417,958,89,108]},
-  {id:'south-lab',name:'实验楼',box:[537,958,88,108]},
+  {id:'south-lab',name:'医学院',aliases:['实验楼'],box:[537,958,88,108]},
   ...([1,2,3,4,5,6,7,8,9] as const).map(n => ({id:`dorm${n}`,name:`学生公寓${n}号楼`,aliases:[`${n}号宿舍楼`,`${n}号公寓楼`],box: ({1:[1056,160,128,66],2:[1056,232,128,68],3:[1056,311,128,70],4:[899,649,122,75],5:[899,728,122,70],6:[899,805,122,70],7:[899,878,122,65],8:[644,974,122,70],9:[697,1059,129,63]} as Record<number,[number,number,number,number]>)[n]})),
   {id:'south-gate',name:'南大门',box:[250,1150,138,72],closed:true},
 ];

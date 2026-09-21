@@ -53,6 +53,7 @@ import { applyScheduleSyncPlan, createScheduleSyncPlan, type ScheduleSyncPlan, t
 import { Icon } from "./ui/Icon";
 import { MotionRegion, Presence } from "./ui/Motion";
 import { InteractionFeedback, Snackbar } from "./ui/Feedback";
+import { useCourseWidget } from "./widgets/useCourseWidget";
 
 const STORAGE_KEY = "kezhi.schedule.prototype.v2";
 const THEME_KEY = "kezhi.appearance.theme";
@@ -140,6 +141,7 @@ export function App() {
   const effectiveCourses = useMemo(() => resolveCourseOccurrences(snapshot.courses, snapshot.courseExceptions, calendar), [snapshot.courses, snapshot.courseExceptions, calendar]);
   const view = useMemo(() => buildWeekView(effectiveCourses, calendar, week), [effectiveCourses, calendar, week]);
   const preset = activePreset(snapshot);
+  const courseWidget = useCourseWidget(capabilities.platform === 'android' && storageBackend !== 'loading', effectiveCourses, calendar, preset);
   const previousView = useMemo(() => buildWeekView(effectiveCourses, calendar, Math.max(MIN_ACADEMIC_WEEK, week - 1)), [effectiveCourses, calendar, week]);
   const nextView = useMemo(() => buildWeekView(effectiveCourses, calendar, Math.min(MAX_ACADEMIC_WEEK, week + 1)), [effectiveCourses, calendar, week]);
   const selected = effectiveCourses.find((course) => course.id === selectedId) ?? snapshot.courses.find(course => course.id === selectedId);
@@ -975,6 +977,8 @@ export function App() {
       <Presence>
       {settingsOpen && (
         <SettingsDialog
+          onPinWidget={capabilities.platform === 'android' ? courseWidget.pin : undefined}
+          widgetStatus={courseWidget.status}
           onCheckUpdate={() => setUpdateOpen(true)}
           onOpenExams={() => { setSettingsOpen(false); setSelectedId(undefined); setActivePage('考试'); }}
           onOpenChanges={() => setChangesOpen(true)}

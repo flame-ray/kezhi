@@ -22,3 +22,5 @@
 # Tauri resolves the native login plugin by class name and Jackson maps its arguments.
 -keep class app.kezhi.android.SchoolLoginPlugin { *; }
 -keep class app.kezhi.android.SchoolLoginOpenArgs { *; }
+-keep class app.kezhi.android.AppActionsPlugin { *; }
+-keep class app.kezhi.android.CourseWidgetArgs { *; }

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { campusPlaces, placeAt, placeCenter, resolveCampusPlace, MAP_SIZE } from './campusMap';
 describe('campus room matching',()=>{
+  it('uses 医学院 for the renamed building and preserves old room aliases',()=>{
+    for(const room of ['医学院301','实验楼301']) expect(resolveCampusPlace(room)?.name).toBe('医学院');
+    expect(resolveCampusPlace('化学实验楼505')?.name).toBe('化学实验楼');
+    expect(resolveCampusPlace('基础医学实验中心楼')?.id).toBe('medical');
+  });
   it.each([['cc301','求实楼'],['ＣＣ３０１','求实楼'],['C-C401','求实楼'],['@B-B301','求真楼'],['b301','求真楼'],['dD206','求是楼'],['aA102','求知楼'],['A楼301','求知楼'],['讲堂群305','讲堂群'],['化学实验楼505','化学实验楼'],['求实楼CC301','求实楼'],['学生公寓9号楼','学生公寓9号楼'],['第三四食堂','3、4号食堂']])('%s resolves to %s',(room,name)=>expect(resolveCampusPlace(room)?.name).toBe(name));
   it.each(['','未设置教室','301','hxx505','ABC301','cc301 / dd301','求实楼、求知楼','OtherCampus301'])('does not guess an unknown or ambiguous room %s',room=>expect(resolveCampusPlace(room)).toBeUndefined());
   it('covers every place with a unique id, valid rectangle',()=>{

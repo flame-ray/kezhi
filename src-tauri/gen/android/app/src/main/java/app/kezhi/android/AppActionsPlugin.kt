@@ -2,6 +2,9 @@ package app.kezhi.android
 
 import android.app.Activity
 import android.content.Intent
+import android.content.ComponentName
+import android.appwidget.AppWidgetManager
+import android.os.Build
 import androidx.activity.result.ActivityResult
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
@@ -15,11 +18,36 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 @InvokeArg
 class ExamCalendarFileArgs { lateinit var content: String }
+@InvokeArg
+class CourseWidgetArgs { lateinit var content: String }
 
 @TauriPlugin
 class AppActionsPlugin(private val activity: Activity) : Plugin(activity) {
   private val exporting = AtomicBoolean(false)
   private val worker = Executors.newSingleThreadExecutor()
+
+  @Command
+  fun syncCourseWidget(invoke: Invoke) {
+    try {
+      val content = invoke.parseArgs(CourseWidgetArgs::class.java).content
+      worker.execute {
+        try { CourseWidgetStore.save(activity, content); CourseWidgetProvider.refresh(activity); invoke.resolve() }
+        catch (error: Exception) { invoke.reject("桌面小组件同步失败", error) }
+      }
+    } catch (error: Exception) { invoke.reject("小组件数据无效", error) }
+  }
+
+  @Command
+  fun pinCourseWidget(invoke: Invoke) {
+    activity.runOnUiThread {
+      try {
+        val manager = AppWidgetManager.getInstance(activity)
+        val supported = Build.VERSION.SDK_INT >= 26 && manager.isRequestPinAppWidgetSupported
+        val requested = supported && manager.requestPinAppWidget(ComponentName(activity, CourseWidgetProvider::class.java), null, null)
+        invoke.resolveObject(requested)
+      } catch (error: Exception) { invoke.reject("无法打开桌面添加窗口，请从桌面小组件列表添加", error) }
+    }
+  }
 
   @Command
   fun goHome(invoke: Invoke) {

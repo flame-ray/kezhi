@@ -1396,6 +1396,8 @@ pub fn run() {
             app_updates::check_app_update,
             app_actions::return_to_home,
             app_actions::save_exam_calendar,
+            app_actions::sync_course_widget,
+            app_actions::pin_course_widget,
             phone_calendar::write_phone_calendar,
             load_schedule_snapshot,
             save_schedule_snapshot,

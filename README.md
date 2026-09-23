@@ -1,6 +1,6 @@
 # 课织（Kezhi）
 
-当前版本 **1.3.0**：新增 Android“今天与下一节课”桌面小组件，在设置中添加，课表变更自动同步到本机小组件缓存。校园地图将南行政楼右侧“实验楼”更名“医学院”，仍兼容旧教室名称。详见 [1.3.0 更新说明](docs/RELEASE_1.3.0.md)，安装包见 [GitHub Releases](https://github.com/flame-ray/kezhi/releases/tag/v1.3.0)。小组件已通过构建与自动化测试，真实桌面显示和厂商省电策略尚待真机验收。
+当前 Android 版本 **1.3.1**：桌面小组件新增迷你格、长条、小卡、信息卡和今日面板五档自适应布局，加入分页轻滑淡入、按压反馈和系统配色。详见 [1.3.1 更新说明](docs/RELEASE_1.3.1.md)，安装包见 [v1.3.1 Release](https://github.com/flame-ray/kezhi/releases/tag/v1.3.1)。本次仅更新 Android，Windows 安装包仍使用 [v1.3.0](https://github.com/flame-ray/kezhi/releases/tag/v1.3.0)。真实桌面拖动、显示与厂商省电行为仍需真机验收。
 
 本版本包含此前的单次调课／停课及撤销、调课冲突确认、导入周次逐条核对、Android 浏览器导航，以及课表重影、长按时间选择和底部导入按钮修复。旧 v0.4.5 安装包不包含这些后续更新。
 

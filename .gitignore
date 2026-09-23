@@ -2,6 +2,7 @@ node_modules/
 dist/
 dist-bun/
 .vite/
+tmp/
 src-tauri/target/
 发布版/
 *.sqlite3

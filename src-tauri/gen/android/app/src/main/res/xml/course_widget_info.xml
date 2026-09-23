@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
- android:minWidth="250dp" android:minHeight="300dp" android:minResizeWidth="180dp" android:minResizeHeight="260dp"
- android:targetCellWidth="4" android:targetCellHeight="4" android:resizeMode="horizontal|vertical"
- android:updatePeriodMillis="1800000" android:initialLayout="@layout/course_widget"
- android:previewLayout="@layout/course_widget" android:description="@string/course_widget_description"
+ android:minWidth="240dp" android:minHeight="220dp" android:minResizeWidth="48dp" android:minResizeHeight="48dp"
+ android:targetCellWidth="4" android:targetCellHeight="2" android:resizeMode="horizontal|vertical"
+ android:updatePeriodMillis="1800000" android:initialLayout="@layout/course_widget_panel"
+ android:previewLayout="@layout/course_widget_panel" android:description="@string/course_widget_description"
  android:widgetCategory="home_screen" />

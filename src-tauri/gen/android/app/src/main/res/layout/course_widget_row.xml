@@ -1,0 +1,7 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="52dp" android:orientation="horizontal" android:gravity="center_vertical">
+<TextView android:id="@+id/widget_row_time" android:layout_width="48dp" android:layout_height="wrap_content" android:text="08:20" android:textStyle="bold" android:textSize="13sp" android:includeFontPadding="false" android:textColor="@color/widget_accent"/>
+<ImageView android:importantForAccessibility="no" android:layout_width="3dp" android:layout_height="27dp" android:background="@drawable/widget_feature_background" android:layout_marginEnd="10dp"/>
+<LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
+<TextView android:id="@+id/widget_row_title" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="大学英语" android:textSize="13sp" android:textColor="@color/widget_text" android:includeFontPadding="false" android:maxLines="1" android:ellipsize="end" android:textStyle="bold"/>
+<TextView android:id="@+id/widget_row_meta" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="讲堂群 305 · 已安排" android:textSize="11sp" android:textColor="@color/widget_muted" android:includeFontPadding="false" android:maxLines="1" android:ellipsize="end" android:layout_marginTop="4dp"/>
+</LinearLayout></LinearLayout>

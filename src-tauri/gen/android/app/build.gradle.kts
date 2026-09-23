@@ -57,6 +57,19 @@ android {
     buildFeatures {
         buildConfig = true
     }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            // Use Maven Central's canonical endpoint; bound network stalls in SDK fixture downloads.
+            it.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+            it.systemProperty("sun.net.client.defaultConnectTimeout", "20000")
+            it.systemProperty("sun.net.client.defaultReadTimeout", "30000")
+            providers.gradleProperty("widgetSdkDir").orNull?.let { directory ->
+                it.systemProperty("robolectric.dependency.dir", directory)
+            }
+            it.maxHeapSize = "1g"
+        }
+    }
 }
 
 rust {
@@ -70,6 +83,7 @@ dependencies {
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.lifecycle:lifecycle-process:2.10.0")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.16.1")
     androidTestImplementation("androidx.test.ext:junit:1.1.4")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")
 }

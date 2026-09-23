@@ -2,15 +2,13 @@ package app.kezhi.android
 
 import android.app.PendingIntent
 import android.content.Context
-import android.os.Build
 import android.provider.Settings
-import android.util.SizeF
 import android.view.View
 import android.widget.RemoteViews
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-/** Pre-render the native variants so Android 12+ can resize without waking the app. */
+/** Resolve the current size ourselves, including hosts that don't apply sized RemoteViews. */
 object CourseWidgetViews {
   fun motionEnabled(context: Context): Boolean = try {
     Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f &&
@@ -21,25 +19,21 @@ object CourseWidgetViews {
     WidgetForm.TILE -> R.layout.course_widget_tile
     WidgetForm.COMPACT -> R.layout.course_widget_compact
     WidgetForm.STRIP -> R.layout.course_widget_strip
+    WidgetForm.DAY_NARROW, WidgetForm.DAY_MEDIUM, WidgetForm.AGENDA -> R.layout.course_widget_day
     else -> if (motion) R.layout.course_widget_panel else R.layout.course_widget_panel_static
   }
 
-  fun responsive(context: Context, portrait: Pair<Float, Float>, landscape: Pair<Float, Float>, create: (WidgetForm) -> RemoteViews): RemoteViews {
+  fun responsive(context: Context, portrait: Pair<Float, Float>, landscape: Pair<Float, Float>, create: (WidgetForm, Float, Float) -> RemoteViews): RemoteViews {
     val scale = context.resources.configuration.fontScale.coerceIn(1f, 2f)
-    if (Build.VERSION.SDK_INT >= 31) {
-      val variants = WidgetForm.values().associate { form ->
-        val factor = if (form == WidgetForm.TILE) 1f else scale
-        SizeF(form.width * factor, form.height * factor) to create(form)
-      }
-      return RemoteViews(variants)
-    }
-    return RemoteViews(create(CourseWidgetLayout.choose(landscape.first, landscape.second, scale)),
-      create(CourseWidgetLayout.choose(portrait.first, portrait.second, scale)))
+    // Always send resolved orientation layouts, not the old five-breakpoint map.
+    // Some launchers stretch its smallest child without reselecting the template.
+    return RemoteViews(create(CourseWidgetLayout.choose(landscape.first, landscape.second, scale), landscape.first, landscape.second),
+      create(CourseWidgetLayout.choose(portrait.first, portrait.second, scale), portrait.first, portrait.second))
   }
 
   fun render(context: Context, form: WidgetForm, agenda: WidgetAgenda, hasData: Boolean, now: Long,
-    rows: List<TimedWidgetCourse>, page: Int, open: PendingIntent, refresh: PendingIntent,
-    previous: PendingIntent, next: PendingIntent): RemoteViews {
+    open: PendingIntent, refresh: PendingIntent, width: Float = form.width, height: Float = form.height, widgetId: Int = 0): RemoteViews {
+    if (form.isDay) return CourseWidgetDayViews.render(context, agenda, hasData, now, width, height, widgetId, open, refresh)
     val views = RemoteViews(context.packageName, layoutId(form, motionEnabled(context)))
     val day = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(now)
     val ongoing = agenda.today.firstOrNull { it.startsAt <= now && it.endsAt > now }
@@ -75,34 +69,9 @@ object CourseWidgetViews {
       left > 0 -> "今天 ${agenda.today.size} 堂 · 还剩 $left 堂"
       else -> "今天 ${agenda.today.size} 堂 · 已全部结束"
     })
-    val expanded = form == WidgetForm.AGENDA && rows.isNotEmpty()
-    views.setViewVisibility(R.id.widget_pages, if (expanded) View.VISIBLE else View.GONE)
-    val pages = CourseWidgetLayout.pageCount(rows.size)
-    views.setViewVisibility(R.id.widget_pager, if (expanded && pages > 1) View.VISIBLE else View.GONE)
-    if (expanded) {
-      views.removeAllViews(R.id.widget_pages)
-      for (group in rows.chunked(3)) {
-        val sheet = RemoteViews(context.packageName, R.layout.course_widget_page)
-        for (item in group) {
-          val row = RemoteViews(context.packageName, R.layout.course_widget_row)
-          val label = when { item.startsAt <= now && item.endsAt > now -> "上课中"; item.endsAt <= now -> "已结束"; else -> "至 ${item.course.end}" }
-          row.setTextViewText(R.id.widget_row_time, item.course.start)
-          row.setTextViewText(R.id.widget_row_title, item.course.title)
-          row.setTextViewText(R.id.widget_row_meta, item.course.location.ifBlank { "教室待定" } + " · " + label)
-          row.setOnClickPendingIntent(R.id.widget_row_title, open)
-          sheet.addView(R.id.widget_page_rows, row)
-        }
-        views.addView(R.id.widget_pages, sheet)
-      }
-      views.setDisplayedChild(R.id.widget_pages, page)
-      views.setTextViewText(R.id.widget_page_number, "${page + 1} / $pages")
-      views.setOnClickPendingIntent(R.id.widget_previous, previous)
-      views.setOnClickPendingIntent(R.id.widget_next, next)
-    }
     val footer = when {
       !hasData -> "点击导入你的课表"
       agenda.today.isEmpty() -> "今天没有课程"
-      agenda.today.size > rows.size -> "展示前 ${rows.size} 堂 · 打开查看全部"
       form == WidgetForm.CARD -> "拉高展开今日课程"
       else -> "点击查看课表"
     }
@@ -110,12 +79,4 @@ object CourseWidgetViews {
     return views
   }
 
-  fun pageUpdate(context: Context, form: WidgetForm, page: Int, pages: Int): RemoteViews {
-    val views = RemoteViews(context.packageName, layoutId(form, motionEnabled(context)))
-    if (form == WidgetForm.AGENDA) {
-      views.setDisplayedChild(R.id.widget_pages, page)
-      views.setTextViewText(R.id.widget_page_number, "${page + 1} / $pages")
-    }
-    return views
-  }
 }

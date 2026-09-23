@@ -1,6 +1,6 @@
 # 课织（Kezhi）
 
-当前 Android 版本 **1.3.1**：桌面小组件新增迷你格、长条、小卡、信息卡和今日面板五档自适应布局，加入分页轻滑淡入、按压反馈和系统配色。详见 [1.3.1 更新说明](docs/RELEASE_1.3.1.md)，安装包见 [v1.3.1 Release](https://github.com/flame-ray/kezhi/releases/tag/v1.3.1)。本次仅更新 Android，Windows 安装包仍使用 [v1.3.0](https://github.com/flame-ray/kezhi/releases/tag/v1.3.0)。真实桌面拖动、显示与厂商省电行为仍需真机验收。
+当前 Android 版本 **1.3.2**：修复小组件拉伸时模板未切换的问题，一格宽／两格宽／大面板新增全天连续课表，支持完整名称换行和空间不足时滚动。详见 [1.3.2 更新说明](docs/RELEASE_1.3.2.md)，下载 [v1.3.2 安装包](https://github.com/flame-ray/kezhi/releases/tag/v1.3.2)。本次仅更新 Android，Windows 安装包仍使用 [v1.3.0](https://github.com/flame-ray/kezhi/releases/tag/v1.3.0)。自动化测试通过，小米等厂商桌面的真实拖动、显示与省电行为仍需真机验收。
 
 本版本包含此前的单次调课／停课及撤销、调课冲突确认、导入周次逐条核对、Android 浏览器导航，以及课表重影、长按时间选择和底部导入按钮修复。旧 v0.4.5 安装包不包含这些后续更新。
 

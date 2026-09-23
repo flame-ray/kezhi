@@ -104,8 +104,8 @@ export function SettingsDialog({
               <Icon name="plus" />
             </button>
             <p className="contact-copy-status" role="status">{widgetMessage || widgetStatus}</p>
-            <div className="settings-note"><Icon name="calendar" /><span><strong>拉伸，变成你喜欢的样子</strong><small>长按桌面小组件拖动边框：迷你格看时间，长条看教室，小卡看下一节，大面板翻页看今天。格数由手机桌面决定；Android 12 起支持预置多尺寸布局和壁纸配色，拉伸动画因桌面而异。</small></span></div>
-            <div className="settings-note"><Icon name="shield" /><span><strong>课程仅保存在本机</strong><small>课程与教室会显示在手机桌面，修改课表后自动同步。大面板课程翻页带轻滑淡入，关闭系统动画时使用静态切换。系统省电可能延迟刷新；信息卡和大面板的 ↻ 可手动更新。</small></span></div>
+            <div className="settings-note"><Icon name="calendar" /><span><strong>拉高，展开一整天</strong><small>迷你格看时间，横条看下一节；一格宽、两格宽及大面板拉高后都展示全天课程，已结束的课也保留。课程名和教室自动换行，空间够时全部展开；课程特别多时上下滑动连续查看，不再每三堂翻页。</small></span></div>
+            <div className="settings-note"><Icon name="shield" /><span><strong>课程仅保存在本机</strong><small>修改课表后自动同步，每次调整尺寸重新排版。Android 12 起跟随系统配色，拉伸过渡由手机桌面控制。系统省电可能延迟刷新；带 ↻ 的卡片可手动更新。</small></span></div>
           </section>}
           {onOpenExams && <button className="settings-toggle-card" onClick={onOpenExams}><span className="settings-icon"><Icon name="calendar" /></span><span className="settings-toggle-copy"><strong>考试中心</strong><small>考试日期、考场、倒计时与提醒</small></span><Icon name="chevron-right" /></button>}
           {onOpenChanges && <button className="settings-toggle-card" onClick={onOpenChanges}><span className="settings-icon"><Icon name="clock" /></span><span className="settings-toggle-copy"><strong>调课记录中心</strong><small>查看、修改或撤销单次调课／停课</small></span><Icon name="chevron-right" /></button>}

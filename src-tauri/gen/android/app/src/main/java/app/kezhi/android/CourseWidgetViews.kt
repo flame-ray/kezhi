@@ -32,8 +32,8 @@ object CourseWidgetViews {
   }
 
   fun render(context: Context, form: WidgetForm, agenda: WidgetAgenda, hasData: Boolean, now: Long,
-    open: PendingIntent, refresh: PendingIntent, width: Float = form.width, height: Float = form.height, widgetId: Int = 0): RemoteViews {
-    if (form.isDay) return CourseWidgetDayViews.render(context, agenda, hasData, now, width, height, widgetId, open, refresh)
+    open: PendingIntent, refresh: PendingIntent, width: Float = form.width, height: Float = form.height, widgetId: Int = 0, style: WidgetAppearance = WidgetAppearance(), dayOffset: Int = 0): RemoteViews {
+    if (form.isDay) return CourseWidgetDayViews.render(context, agenda, hasData, now, width, height, widgetId, open, refresh, style, dayOffset)
     val views = RemoteViews(context.packageName, layoutId(form, motionEnabled(context)))
     val day = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(now)
     val ongoing = agenda.today.firstOrNull { it.startsAt <= now && it.endsAt > now }
@@ -48,30 +48,32 @@ object CourseWidgetViews {
       !hasData -> "待同步"; hero == null -> "今天"; form == WidgetForm.TILE -> if (whenLabel == "今天") state else whenLabel
       else -> "$state · $whenLabel"
     }
-    views.setOnClickPendingIntent(android.R.id.background, open)
+    views.setOnClickPendingIntent(android.R.id.background, if(hero != null && hero.course.id.isNotEmpty()) WidgetNavigation.pending(context, hero.course) else open)
+    WidgetStyle.apply(context, views, form, style)
     views.setContentDescription(android.R.id.background, "$status，$title，$time，$meta。点击打开课织")
     views.setTextViewText(R.id.widget_status, status)
     views.setTextViewText(R.id.widget_time, time)
     if (form == WidgetForm.TILE) {
       // At one-cell size, accessibility labels retain all details even when the
       // visual status line must yield its space to large-font time text.
-      if (context.resources.configuration.fontScale > 1.3f) views.setViewVisibility(R.id.widget_status, View.GONE)
+      if (context.resources.configuration.fontScale * style.textScale > 1.3f) views.setViewVisibility(R.id.widget_status, View.GONE)
       return views
     }
     views.setTextViewText(R.id.widget_next_title, title)
     views.setTextViewText(R.id.widget_next_meta, if (form == WidgetForm.COMPACT && hero != null) room else meta)
     if (form == WidgetForm.COMPACT || form == WidgetForm.STRIP) return views
     views.setOnClickPendingIntent(R.id.widget_refresh, refresh)
-    views.setTextViewText(R.id.widget_date, SimpleDateFormat("M月d日 E", Locale.CHINA).format(now))
+    views.setTextViewText(R.id.widget_date, SimpleDateFormat("M月d日 E", Locale.CHINA).format(WidgetPreferences.displayTime(now, dayOffset)))
+    val dayLabel = if(dayOffset == 1) "明天" else "今天"
     val left = agenda.today.count { it.endsAt > now }
     views.setTextViewText(R.id.widget_today_title, when {
-      !hasData -> "今天的安排"; agenda.today.isEmpty() -> "今天没有课程"
-      left > 0 -> "今天 ${agenda.today.size} 堂 · 还剩 $left 堂"
-      else -> "今天 ${agenda.today.size} 堂 · 已全部结束"
+      !hasData -> dayLabel + "的安排"; agenda.today.isEmpty() -> dayLabel + "没有课程"
+      left > 0 -> "$dayLabel ${agenda.today.size} 堂 · 还剩 $left 堂"
+      else -> "$dayLabel ${agenda.today.size} 堂 · 已全部结束"
     })
     val footer = when {
       !hasData -> "点击导入你的课表"
-      agenda.today.isEmpty() -> "今天没有课程"
+      agenda.today.isEmpty() -> dayLabel + "没有课程"
       form == WidgetForm.CARD -> "拉高展开今日课程"
       else -> "点击查看课表"
     }

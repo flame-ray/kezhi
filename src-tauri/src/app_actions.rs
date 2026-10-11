@@ -5,6 +5,31 @@ use tauri::{plugin::{Builder, PluginHandle, TauriPlugin}, Manager, Runtime};
 struct AppActions<R: Runtime>(PluginHandle<R>);
 
 #[tauri::command]
+pub(crate) async fn configure_course_widget(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    { tauri::async_runtime::spawn_blocking(move || app.state::<AppActions<tauri::Wry>>().0.run_mobile_plugin::<()>("configureCourseWidget", ()).map_err(|error| error.to_string())).await.map_err(|error| error.to_string())? }
+    #[cfg(not(target_os = "android"))]
+    { let _ = app; Err("桌面小组件仅支持 Android".into()) }
+}
+
+#[tauri::command]
+pub(crate) async fn read_widget_navigation(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    { tauri::async_runtime::spawn_blocking(move || app.state::<AppActions<tauri::Wry>>().0.run_mobile_plugin("readWidgetNavigation", ()).map_err(|error| error.to_string())).await.map_err(|error| error.to_string())? }
+    #[cfg(not(target_os = "android"))]
+    { let _ = app; Ok(serde_json::json!({"pending":null})) }
+}
+
+#[tauri::command]
+pub(crate) async fn acknowledge_widget_navigation(app: tauri::AppHandle, content: String) -> Result<(), String> {
+    if content.len() > 128 { return Err("跳转标记无效".into()); }
+    #[cfg(target_os = "android")]
+    { tauri::async_runtime::spawn_blocking(move || app.state::<AppActions<tauri::Wry>>().0.run_mobile_plugin::<()>("acknowledgeWidgetNavigation", serde_json::json!({"content":content})).map_err(|error| error.to_string())).await.map_err(|error| error.to_string())? }
+    #[cfg(not(target_os = "android"))]
+    { let _ = (app, content); Ok(()) }
+}
+
+#[tauri::command]
 pub(crate) async fn return_to_home(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "android")]
     { tauri::async_runtime::spawn_blocking(move || app.state::<AppActions<tauri::Wry>>().0.run_mobile_plugin::<()>("goHome", ()).map_err(|error| error.to_string())).await.map_err(|error| error.to_string())? }

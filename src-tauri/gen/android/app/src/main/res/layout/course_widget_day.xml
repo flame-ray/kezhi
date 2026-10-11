@@ -11,4 +11,5 @@
     <TextView android:id="@+id/widget_day_empty" android:layout_width="match_parent" android:layout_height="match_parent" android:gravity="center" android:textSize="12sp" android:includeFontPadding="false" android:textColor="@color/widget_muted" android:visibility="gone"/>
   </FrameLayout>
   <TextView android:id="@+id/widget_day_footer" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="9sp" android:includeFontPadding="false" android:textColor="@color/widget_muted" android:layout_marginTop="6dp"/>
+  <TextView android:id="@+id/widget_day_toggle" android:layout_width="match_parent" android:layout_height="32dp" android:gravity="center" android:text="明天 ›" android:textSize="11sp" android:textColor="@color/widget_accent" android:background="@drawable/widget_control_background"/>
 </LinearLayout>

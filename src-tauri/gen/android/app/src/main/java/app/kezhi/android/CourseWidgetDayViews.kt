@@ -15,7 +15,7 @@ import android.widget.RemoteViews
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-data class WidgetDayPlan(val width: Float, val titleSp: Float, val fits: Boolean, val narrow: Boolean, val wide: Boolean)
+data class WidgetDayPlan(val width: Float, val titleSp: Float, val fits: Boolean, val narrow: Boolean, val wide: Boolean, val style: WidgetAppearance = WidgetAppearance())
 
 /** A continuous day, not three-course pages. Completed courses remain visible. */
 object CourseWidgetDayViews {
@@ -27,12 +27,12 @@ object CourseWidgetDayViews {
       else -> ""
     }
 
-  fun plan(context: Context, width: Float, height: Float, rows: List<TimedWidgetCourse>, now: Long): WidgetDayPlan {
+  fun plan(context: Context, width: Float, height: Float, rows: List<TimedWidgetCourse>, now: Long, style: WidgetAppearance = WidgetAppearance()): WidgetDayPlan {
     val narrow = width < 112f
     val wide = width >= 240f
     val preferred = if (narrow) 11f else if (wide) 14f else 13f
     val density = context.resources.displayMetrics.density
-    val scale = context.resources.configuration.fontScale
+    val scale = context.resources.configuration.fontScale * style.textScale
     val inner = (width - if (narrow) 12f else 34f).coerceAtLeast(16f)
     fun lines(text: String, sp: Float, available: Float, bold: Boolean = false): Float {
       val paint = TextPaint().apply { textSize = sp * scale * density; typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT }
@@ -42,17 +42,18 @@ object CourseWidgetDayViews {
     fun fits(title: Float): Boolean {
       if (rows.size > 30) return false // Keep large imports off the resize/binder path.
       // Header/date/summary/footer + conservative text rounding and row spacing.
-      val budget = height - 110f * scale.coerceAtLeast(1f)
+      val budget = height - 148f * scale.coerceAtLeast(1f)
       val total = rows.sumOf { item ->
         val time = lines(time(item, narrow, wide), if (narrow) 10f else 11f, if (wide) 50f else inner, true)
         val copyWidth = if (wide) inner - 58f else inner
-        val copy = lines(item.course.title, title, copyWidth, true) + 3f + lines(room(item, now, wide), 10f, copyWidth)
-        (if (wide) maxOf(time, copy) + 18f else time + 4f + copy + 18f).toDouble()
+        val displayTitle = (if(item.startsAt <= now && item.endsAt > now) "● " else "") + item.course.title
+        val copy = lines(displayTitle, title, copyWidth, true) + 3f + lines(room(item, now, wide), 10f, copyWidth)
+        (if (wide) maxOf(time, copy) + (if (style.compact) 12f else 18f) else time + 4f + copy + (if (style.compact) 12f else 18f)).toDouble()
       }
       return total <= budget
     }
     val title = listOf(preferred, preferred - 1f).firstOrNull { fits(it) } ?: preferred
-    return WidgetDayPlan(width, title, fits(title), narrow, wide)
+    return WidgetDayPlan(width, title, fits(title), narrow, wide, style)
   }
 
   fun row(context: Context, item: TimedWidgetCourse, plan: WidgetDayPlan, now: Long, open: PendingIntent? = null): RemoteViews {
@@ -71,14 +72,25 @@ object CourseWidgetDayViews {
     view.setInt(R.id.widget_day_row_card, "setBackgroundResource", if (ongoing) R.drawable.widget_day_active else R.drawable.widget_day_idle)
     view.setTextColor(R.id.widget_day_row_title, context.getColor(if (item.endsAt <= now) R.color.widget_muted else R.color.widget_text))
     view.setContentDescription(R.id.widget_day_row_root, "${item.course.start} 至 ${item.course.end}，${item.course.title}，${item.course.location}" + if (ongoing) "，上课中" else "")
-    if (open != null) view.setOnClickPendingIntent(R.id.widget_day_row_root, open)
-    else view.setOnClickFillInIntent(R.id.widget_day_row_root, Intent())
+    val style = plan.style
+    WidgetStyle.text(view, R.id.widget_day_row_time, if(plan.narrow) 10f else 11f, context, style, "accent")
+    WidgetStyle.text(view, R.id.widget_day_row_title, plan.titleSp, context, style, if(item.endsAt <= now) "muted" else "text")
+    WidgetStyle.text(view, R.id.widget_day_row_room, 10f, context, style, "muted")
+    // Keep theme/opacity consistent with this instance, including collection rows.
+    if (!ongoing || style.theme != "system" || style.opacity != 100) view.setInt(R.id.widget_day_row_card, "setBackgroundResource", WidgetStyle.background(context, style, true))
+    if (ongoing) view.setTextViewText(R.id.widget_day_row_title, "● " + item.course.title)
+    if (style.compact) {
+      val d = context.resources.displayMetrics.density
+      view.setViewPadding(R.id.widget_day_row_card, ((if(plan.narrow) 2 else 5)*d).toInt(), (2*d).toInt(), ((if(plan.narrow) 2 else 5)*d).toInt(), (2*d).toInt())
+    }
+    if (open != null) view.setOnClickPendingIntent(R.id.widget_day_row_root, if(item.course.id.isNotEmpty()) WidgetNavigation.pending(context, item.course) else open)
+    else view.setOnClickFillInIntent(R.id.widget_day_row_root, WidgetNavigation.fillIn(item.course))
     return view
   }
 
   fun render(context: Context, agenda: WidgetAgenda, hasData: Boolean, now: Long, width: Float, height: Float,
-    widgetId: Int, open: PendingIntent, refresh: PendingIntent): RemoteViews {
-    val plan = plan(context, width, height, agenda.today, now)
+    widgetId: Int, open: PendingIntent, refresh: PendingIntent, style: WidgetAppearance = WidgetAppearance(), dayOffset: Int = 0): RemoteViews {
+    val plan = plan(context, width, height, agenda.today, now, style)
     val view = RemoteViews(context.packageName, R.layout.course_widget_day)
     val density = context.resources.displayMetrics.density
     val pad = ((if (plan.narrow) 4 else 12) * density).toInt()
@@ -87,14 +99,15 @@ object CourseWidgetDayViews {
     view.setOnClickPendingIntent(R.id.widget_day_refresh, refresh)
     view.setViewVisibility(R.id.widget_day_refresh, if (plan.narrow) View.GONE else View.VISIBLE)
     view.setTextViewTextSize(R.id.widget_day_heading, TypedValue.COMPLEX_UNIT_SP, if (plan.narrow) 12f else 16f)
-    view.setTextViewText(R.id.widget_day_heading, if (plan.wide) "今天的课表" else "今天")
-    view.setTextViewText(R.id.widget_day_date, SimpleDateFormat(if (plan.narrow) "M/d" else "M月d日 E", Locale.CHINA).format(now))
+    val dayLabel = if(dayOffset == 1) "明天" else "今天"
+    view.setTextViewText(R.id.widget_day_heading, if (plan.wide) dayLabel + "的课表" else dayLabel)
+    view.setTextViewText(R.id.widget_day_date, SimpleDateFormat(if (plan.narrow) "M/d" else "M月d日 E", Locale.CHINA).format(WidgetPreferences.displayTime(now, dayOffset)))
     val remaining = agenda.today.count { it.endsAt > now }
     view.setTextViewText(R.id.widget_day_summary, if (plan.narrow) "${agenda.today.size}堂" else "${agenda.today.size} 堂 · 剩 $remaining 堂")
     view.removeAllViews(R.id.widget_day_rows)
     val empty = agenda.today.isEmpty() || !hasData
     view.setViewVisibility(R.id.widget_day_empty, if (empty) View.VISIBLE else View.GONE)
-    view.setTextViewText(R.id.widget_day_empty, if (!hasData) "打开课织\n同步课表" else "今天没有课\n好好休息")
+    view.setTextViewText(R.id.widget_day_empty, if (!hasData) "打开课织\n同步课表" else dayLabel + "没有课\n好好休息")
     view.setViewVisibility(R.id.widget_day_rows, if (!empty && plan.fits) View.VISIBLE else View.GONE)
     view.setViewVisibility(R.id.widget_day_list, if (!empty && !plan.fits) View.VISIBLE else View.GONE)
     if (!empty && plan.fits) {
@@ -103,8 +116,8 @@ object CourseWidgetDayViews {
       // No truncated day or tiny illegible text: an unpaged native list is the
       // fallback only when every complete course row cannot physically fit.
       val adapter = Intent(context, CourseWidgetDayService::class.java)
-        .putExtra("width", width).putExtra("titleSp", plan.titleSp)
-        .setData(Uri.parse("kezhi-widget://day/$widgetId/$width/${plan.titleSp}"))
+        .putExtra("width", width).putExtra("titleSp", plan.titleSp).putExtra("widgetId", widgetId)
+        .setData(Uri.parse("kezhi-widget://day/$widgetId/$width/${plan.titleSp}/$dayOffset/${style.hashCode()}"))
       @Suppress("DEPRECATION")
       view.setRemoteAdapter(R.id.widget_day_list, adapter)
       val flags = PendingIntent.FLAG_UPDATE_CURRENT or if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
@@ -114,7 +127,19 @@ object CourseWidgetDayViews {
     }
     val footer = when { !hasData -> "点击同步"; !empty && !plan.fits -> if (plan.narrow) "上下滑动" else "上下滑动 · 查看全天"; else -> if (plan.narrow) "全天" else "全天已展开" }
     view.setTextViewText(R.id.widget_day_footer, footer)
-    view.setContentDescription(android.R.id.background, if (!hasData) "打开课织同步课表" else "今天 ${agenda.today.size} 堂课程，剩余 $remaining 堂。" + if (empty) "暂无后续课程" else "全天课表")
+    view.setTextViewText(R.id.widget_day_toggle, if(dayOffset == 1) "‹ 今天" else "明天 ›")
+    view.setOnClickPendingIntent(R.id.widget_day_toggle, CourseWidgetProvider.toggleIntent(context, widgetId))
+    view.setOnClickPendingIntent(R.id.widget_day_heading, CourseWidgetConfigureActivity.pending(context, widgetId))
+    view.setContentDescription(R.id.widget_day_heading, dayLabel + "课表，点击设置小组件外观")
+    view.setInt(android.R.id.background, "setBackgroundResource", WidgetStyle.background(context, style))
+    WidgetStyle.text(view, R.id.widget_day_heading, if(plan.narrow) 12f else 16f, context, style)
+    WidgetStyle.text(view, R.id.widget_day_date, 10f, context, style, "muted")
+    WidgetStyle.text(view, R.id.widget_day_summary, 11f, context, style, "accent")
+    WidgetStyle.text(view, R.id.widget_day_empty, 12f, context, style, "muted")
+    WidgetStyle.text(view, R.id.widget_day_footer, 9f, context, style, "muted")
+    WidgetStyle.text(view, R.id.widget_day_toggle, 11f, context, style, "accent")
+    WidgetStyle.text(view, R.id.widget_day_refresh, 22f, context, style, "accent")
+    view.setContentDescription(android.R.id.background, if (!hasData) "打开课织同步课表" else "$dayLabel ${agenda.today.size} 堂课程，剩余 $remaining 堂。" + if (empty) "暂无后续课程" else "全天课表")
     return view
   }
 }

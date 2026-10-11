@@ -8,13 +8,16 @@ const base = process.env.KEZHI_UI_URL || 'http://127.0.0.1:1421';
   const context = await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,timezoneId:'Asia/Shanghai',userAgent:'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/145.0.0.0 Mobile Safari/537.36'});
   await context.route('**/*', r => new URL(r.request().url()).origin===base ? r.continue() : r.abort());
   await context.addInitScript(() => {
-   window.widgetCalls=[]; window.pinSupported=true; window.failWidget=false; let id=0;
+   window.widgetCalls=[]; window.pinSupported=true; window.failWidget=false; window.widgetTarget=JSON.parse(localStorage.getItem('test.widget.target')||'null'); let id=0;
    window.__TAURI_INTERNALS__={transformCallback:()=>++id,unregisterCallback:()=>{},invoke:async(command,args)=>{
     if(command==='load_schedule_snapshot'){await new Promise(r=>setTimeout(r,180));return JSON.parse(localStorage.getItem('kezhi.schedule.prototype.v2'));}
     if(command==='save_schedule_snapshot')return;
     if(command==='load_local_accounts')return [];
     if(command==='sync_course_widget'){window.widgetCalls.push({command,args});if(window.failWidget)throw Error('simulated failure');return;}
     if(command==='pin_course_widget'){window.widgetCalls.push({command});return window.pinSupported;}
+    if(command==='configure_course_widget'){window.widgetCalls.push({command});return;}
+    if(command==='read_widget_navigation')return {pending:window.widgetTarget};
+    if(command==='acknowledge_widget_navigation'){if(window.widgetTarget?.token===args.content){window.widgetTarget=null;localStorage.removeItem('test.widget.target');}return;}
     if(command.startsWith('plugin:notification|'))return false;
     if(command.startsWith('plugin:app|'))return;
     throw Error('Unmocked native call: '+command);
@@ -35,9 +38,22 @@ const base = process.env.KEZHI_UI_URL || 'http://127.0.0.1:1421';
   const payload=await page.evaluate(()=>JSON.parse(window.widgetCalls.find(c=>c.command==='sync_course_widget').args.content));
   assert.equal(payload.version,1);assert.deepEqual(payload.events.map(e=>e.date),['2026-09-17','2026-10-01']);
   assert(!JSON.stringify(payload).includes('private-account'));assert(!JSON.stringify(payload).includes('私人学校'));
-  assert.deepEqual(Object.keys(payload.events[0]).sort(),['date','end','location','start','title']);
+  assert.deepEqual(Object.keys(payload.events[0]).sort(),['date','end','id','location','start','title']);
+  // Warm tap and cold startup must wait for the real snapshot, then open the exact course.
+  await page.evaluate(()=>{window.widgetTarget={id:'widget-test',date:'2026-09-17',token:'warm'};window.dispatchEvent(new Event('kezhi-widget-open'));});
+  const detail=page.getByRole('dialog',{name:'数学',exact:true});
+  await detail.waitFor(); await detail.getByTitle('关闭').click();
+  await page.evaluate(()=>localStorage.setItem('test.widget.target',JSON.stringify({id:'widget-test',date:'2026-10-01',token:'cold'})));
+  await page.reload();await detail.waitFor();await detail.getByTitle('关闭').click();await detail.waitFor({state:'hidden'});
+  assert.equal(await page.evaluate(()=>localStorage.getItem('test.widget.target')),null);
+  await page.evaluate(()=>{window.widgetTarget={id:'deleted',date:'2026-09-17',token:'stale'};window.dispatchEvent(new Event('kezhi-widget-open'));});
+  await page.getByText('这堂课已变更或删除，请查看最新课表').waitFor();
+  assert.equal(await detail.count(),0);
+  console.log('PASS cold/warm widget navigation and stale target rejection');
   await page.getByRole('navigation',{name:'主导航'}).getByRole('button',{name:'设置',exact:true}).click();
   const settings=page.getByRole('dialog',{name:'课表与提醒'}), add=settings.getByRole('button',{name:/添加桌面小组件/});
+  await settings.getByRole('button',{name:/小组件外观设置/}).click();
+  assert(await page.evaluate(()=>window.widgetCalls.some(c=>c.command==='configure_course_widget')));
   await add.click();await settings.getByText(/已请求添加，请在系统弹窗中确认/).waitFor();
   assert.equal(await page.evaluate(()=>window.widgetCalls.filter(c=>c.command==='sync_course_widget').length),1,'pin reuses already saved identical snapshot');
   await page.evaluate(()=>{window.pinSupported=false;});await add.click();

@@ -5,7 +5,7 @@ import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
 
-data class WidgetCourse(val date: String, val start: String, val end: String, val title: String, val location: String)
+data class WidgetCourse(val date: String, val start: String, val end: String, val title: String, val location: String, val id: String = "")
 data class TimedWidgetCourse(val course: WidgetCourse, val startsAt: Long, val endsAt: Long)
 data class WidgetAgenda(val today: List<TimedWidgetCourse>, val next: TimedWidgetCourse?, val refreshAt: Long)
 

@@ -23,14 +23,17 @@ object CourseWidgetStore {
       require(clock.matches(start) && clock.matches(end) && end > start)
       val title = row.getString("title"); val location = row.getString("location")
       require(title.length <= 120 && location.length <= 120)
-      WidgetCourse(date, start, end, title, location)
+      val id = row.optString("id", "")
+      require(id.length <= 512)
+      WidgetCourse(date, start, end, title, location, id)
     }
   }
   @Synchronized fun save(context: Context, content: String) {
     decode(content) // Reject invalid data without replacing the previous cache.
-    require(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("snapshot", content).commit()) { "小组件本地保存失败" }
+    require(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("snapshot", content).putLong("syncedAt", System.currentTimeMillis()).commit()) { "小组件本地保存失败" }
   }
   fun load(context: Context): List<WidgetCourse>? = try {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("snapshot", null)?.let { decode(it) }
   } catch (_: Exception) { null }
+  fun syncedAt(context: Context): Long = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong("syncedAt", 0)
 }

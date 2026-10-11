@@ -4,4 +4,5 @@
  android:targetCellWidth="4" android:targetCellHeight="2" android:resizeMode="horizontal|vertical"
  android:updatePeriodMillis="1800000" android:initialLayout="@layout/course_widget_panel"
  android:previewLayout="@layout/course_widget_panel" android:description="@string/course_widget_description"
+ android:configure="app.kezhi.android.CourseWidgetConfigureActivity" android:widgetFeatures="reconfigurable|configuration_optional"
  android:widgetCategory="home_screen" />

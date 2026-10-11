@@ -8,7 +8,7 @@ describe('widget projection',()=>{
   it('expands odd weeks and timetable periods without private fields',()=>{
     const data=buildWidgetSnapshot([course],calendar,defaultPresets[0]);
     expect(data.events.map(e=>e.date)).toEqual(['2026-09-17','2026-10-01']);
-    expect(Object.keys(data.events[0]).sort()).toEqual(['date','end','location','start','title']);
+    expect(Object.keys(data.events[0]).sort()).toEqual(['date','end','id','location','start','title']);
     expect(data.events[0].start).toBe(defaultPresets[0].periods[0].start);
     expect(data.events[0].end).toBe(defaultPresets[0].periods[1].end);
   });

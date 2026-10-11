@@ -54,6 +54,9 @@ import { Icon } from "./ui/Icon";
 import { MotionRegion, Presence } from "./ui/Motion";
 import { InteractionFeedback, Snackbar } from "./ui/Feedback";
 import { useCourseWidget } from "./widgets/useCourseWidget";
+import { useWidgetNavigation } from "./widgets/useWidgetNavigation";
+import { resolveWidgetCourse } from "./widgets/widgetNavigation";
+import { dateFromOccurrenceKey } from "./domain/courseExceptions";
 
 const STORAGE_KEY = "kezhi.schedule.prototype.v2";
 const THEME_KEY = "kezhi.appearance.theme";
@@ -142,6 +145,13 @@ export function App() {
   const view = useMemo(() => buildWeekView(effectiveCourses, calendar, week), [effectiveCourses, calendar, week]);
   const preset = activePreset(snapshot);
   const courseWidget = useCourseWidget(capabilities.platform === 'android' && storageBackend !== 'loading', effectiveCourses, calendar, preset);
+  useWidgetNavigation(capabilities.platform === 'android' && storageBackend !== 'loading' && !editingCourse && !editingGrade && !editingExam && !importOpen && !occurrenceOpen, target => {
+    const course = resolveWidgetCourse(target, effectiveCourses, calendar);
+    if (!course) { setToast('这堂课已变更或删除，请查看最新课表'); return; }
+    setSettingsOpen(false); setUpdateOpen(false); setCampusTarget(undefined);
+    setActivePage('课表'); setWeek(visibleAcademicWeek(dateFromOccurrenceKey(target.date), calendar));
+    setSelectedDate(target.date); setSelectedId(course.id);
+  });
   const previousView = useMemo(() => buildWeekView(effectiveCourses, calendar, Math.max(MIN_ACADEMIC_WEEK, week - 1)), [effectiveCourses, calendar, week]);
   const nextView = useMemo(() => buildWeekView(effectiveCourses, calendar, Math.min(MAX_ACADEMIC_WEEK, week + 1)), [effectiveCourses, calendar, week]);
   const selected = effectiveCourses.find((course) => course.id === selectedId) ?? snapshot.courses.find(course => course.id === selectedId);

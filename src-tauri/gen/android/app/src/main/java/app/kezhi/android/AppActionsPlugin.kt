@@ -27,6 +27,26 @@ class AppActionsPlugin(private val activity: Activity) : Plugin(activity) {
   private val worker = Executors.newSingleThreadExecutor()
 
   @Command
+  fun configureCourseWidget(invoke: Invoke) {
+    activity.runOnUiThread {
+      try { activity.startActivity(Intent(activity, CourseWidgetConfigureActivity::class.java)); invoke.resolve() }
+      catch (error: Exception) { invoke.reject("无法打开小组件设置", error) }
+    }
+  }
+
+  @Command
+  fun readWidgetNavigation(invoke: Invoke) {
+    val value = WidgetNavigation.read(activity)
+    invoke.resolve(JSObject().put("pending", value ?: org.json.JSONObject.NULL))
+  }
+
+  @Command
+  fun acknowledgeWidgetNavigation(invoke: Invoke) {
+    try { WidgetNavigation.acknowledge(activity, invoke.parseArgs(CourseWidgetArgs::class.java).content); invoke.resolve() }
+    catch (error: Exception) { invoke.reject("无法确认小组件跳转", error) }
+  }
+
+  @Command
   fun syncCourseWidget(invoke: Invoke) {
     try {
       val content = invoke.parseArgs(CourseWidgetArgs::class.java).content

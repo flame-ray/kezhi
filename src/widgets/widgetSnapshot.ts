@@ -2,7 +2,7 @@ import { dateForCourse, isTeachingDate, type ResolvedAcademicCalendar } from '..
 import { occurrenceDateKey } from '../domain/courseExceptions';
 import type { CourseMeeting, TimetablePreset } from '../domain/schedule';
 
-export interface WidgetEvent { date: string; start: string; end: string; title: string; location: string }
+export interface WidgetEvent { id: string; date: string; start: string; end: string; title: string; location: string }
 export interface WidgetSnapshot { version: 1; events: WidgetEvent[] }
 
 // Only display data crosses into the widget cache: no credentials, accounts or grades.
@@ -19,7 +19,7 @@ export function buildWidgetSnapshot(courses: CourseMeeting[], calendar: Resolved
       if (!Number.isInteger(week) || week < 1 || week > 30) continue;
       const date = dateForCourse(calendar, week, course.day);
       if (!isTeachingDate(calendar, date)) continue;
-      events.push({date: occurrenceDateKey(date), start, end, title: course.title.slice(0,120), location: course.location.slice(0,120)});
+      events.push({id: course.id, date: occurrenceDateKey(date), start, end, title: course.title.slice(0,120), location: course.location.slice(0,120)});
     }
   }
   if (events.length > 10000) throw new Error('课程场次过多，桌面小组件暂未更新');

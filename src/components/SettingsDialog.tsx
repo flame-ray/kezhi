@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { openReleasePage } from "../platform/updates";
 import { version } from "../../package.json";
 import type { ReminderSettings } from "../domain/schedule";
@@ -104,8 +105,11 @@ export function SettingsDialog({
               <Icon name="plus" />
             </button>
             <p className="contact-copy-status" role="status">{widgetMessage || widgetStatus}</p>
+            <button className="settings-toggle-card" onClick={() => { void invoke('configure_course_widget').catch(() => setWidgetMessage('无法打开外观设置，请稍后重试')); }}>
+              <span className="settings-icon"><Icon name="settings" /></span><span className="settings-toggle-copy"><strong>小组件外观设置</strong><small>独立主题、背景透明度、字号与密度 · 查看同步时间</small></span><Icon name="chevron-right" />
+            </button>
             <div className="settings-note"><Icon name="calendar" /><span><strong>拉高，展开一整天</strong><small>迷你格看时间，横条看下一节；一格宽、两格宽及大面板拉高后都展示全天课程，已结束的课也保留。课程名和教室自动换行，空间够时全部展开；课程特别多时上下滑动连续查看，不再每三堂翻页。</small></span></div>
-            <div className="settings-note"><Icon name="shield" /><span><strong>课程仅保存在本机</strong><small>修改课表后自动同步，每次调整尺寸重新排版。Android 12 起跟随系统配色，拉伸过渡由手机桌面控制。系统省电可能延迟刷新；带 ↻ 的卡片可手动更新。</small></span></div>
+            <div className="settings-note"><Icon name="shield" /><span><strong>课程仅保存在本机</strong><small>点课程直达详情，全天面板底部可切换今天／明天，次日自动回到今天。点面板标题或上方按钮可设置独立外观。修改课表后自动同步；带 ↻ 的卡片可手动更新，桌面省电可能延迟刷新。</small></span></div>
           </section>}
           {onOpenExams && <button className="settings-toggle-card" onClick={onOpenExams}><span className="settings-icon"><Icon name="calendar" /></span><span className="settings-toggle-copy"><strong>考试中心</strong><small>考试日期、考场、倒计时与提醒</small></span><Icon name="chevron-right" /></button>}
           {onOpenChanges && <button className="settings-toggle-card" onClick={onOpenChanges}><span className="settings-icon"><Icon name="clock" /></span><span className="settings-toggle-copy"><strong>调课记录中心</strong><small>查看、修改或撤销单次调课／停课</small></span><Icon name="chevron-right" /></button>}

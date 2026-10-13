@@ -17,3 +17,12 @@
 同时升级开发测试工具 Vitest 至 4.1.11 并更新 source-map-js，消除本轮依赖审计发现的告警；不更改选课逻辑。参考 [Vitest 安全修复说明](https://github.com/vitest-dev/vitest/security/advisories/GHSA-82fw-gwwq-j7x9)。依赖审计通过不代表应用不存在其他安全问题。
 
 本轮仅更新 Android 安装包，Windows 仍使用此前 v1.3.0。构建使用手动触发的 GitHub Actions，签名继续在本机使用原正式密钥完成。
+
+## 发行验证
+
+- 构建源码：`4687a65ca0f62d8cb49b919ef9f1d2c0d2ab233c`；[云端构建与原生测试](https://github.com/flame-ray/kezhi/actions/runs/38353525092)通过。
+- 前端 36 个测试文件、244 项测试通过；Android 原生测试任务通过（源码包含 42 项测试）。界面冒烟检查覆盖强制刷新、只读检查、失败重试及亮暗窄屏排版。
+- 安装包：`Kezhi-1.4.2-arm64.apk`，22,973,916 字节（约 23 MB），Android 7.0+ / arm64-v8a，versionCode `10402`。
+- 沿用原正式证书，APK v2/v3 签名和 16 KB 对齐验证通过。证书 SHA-256：`64a23c1c06fbcf1182078c7b2586212374a7fecbd1af27c55c515d30cac46fe4`。
+- APK SHA-256：`c4c37b0f7cab9f18b650770643e669fb51a8f26f6793a52f8530b3cbc1c5bc4d`。
+- 本轮没有连接真机，不能把自动化验证视为小米等厂商桌面的实际显示与省电行为验证。

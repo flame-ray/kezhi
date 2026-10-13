@@ -989,6 +989,7 @@ export function App() {
         <SettingsDialog
           onPinWidget={capabilities.platform === 'android' ? courseWidget.pin : undefined}
           widgetStatus={courseWidget.status}
+          onRefreshWidget={capabilities.platform === 'android' ? courseWidget.refresh : undefined}
           onCheckUpdate={() => setUpdateOpen(true)}
           onOpenExams={() => { setSettingsOpen(false); setSelectedId(undefined); setActivePage('考试'); }}
           onOpenChanges={() => setChangesOpen(true)}

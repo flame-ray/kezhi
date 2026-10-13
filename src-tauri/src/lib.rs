@@ -1397,6 +1397,7 @@ pub fn run() {
             app_actions::return_to_home,
             app_actions::save_exam_calendar,
             app_actions::sync_course_widget,
+            app_actions::read_course_widget_status,
             app_actions::pin_course_widget,
             app_actions::configure_course_widget,
             app_actions::read_widget_navigation,

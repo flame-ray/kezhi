@@ -5,6 +5,7 @@ import { version } from "../../package.json";
 import type { ReminderSettings } from "../domain/schedule";
 import { Icon } from "../ui/Icon";
 import { DialogSurface } from "../ui/DialogSurface";
+import { WidgetStatusPanel } from "../widgets/WidgetStatusPanel";
 
 interface SettingsDialogProps {
   settings: ReminderSettings;
@@ -20,6 +21,7 @@ interface SettingsDialogProps {
   onOpenExams?: () => void;
   onCheckUpdate?: () => void;
   onPinWidget?: () => Promise<string>;
+  onRefreshWidget?: () => Promise<void>;
   widgetStatus?: string;
 }
 
@@ -41,6 +43,7 @@ export function SettingsDialog({
   onOpenExams,
   onCheckUpdate,
   onPinWidget,
+  onRefreshWidget,
   widgetStatus,
 }: SettingsDialogProps) {
   const [busy, setBusy] = useState(false);
@@ -99,6 +102,7 @@ export function SettingsDialog({
           </section>
           {onCheckUpdate && <button className="settings-toggle-card" onClick={onCheckUpdate}><span className="settings-icon"><Icon name="shield" /></span><span className="settings-toggle-copy"><strong>检查更新</strong><small>当前版本 {version} · 查看官方新版说明</small></span><Icon name="chevron-right" /></button>}
           {onPinWidget && <section aria-label="桌面小组件">
+            {onRefreshWidget && <WidgetStatusPanel onRefresh={onRefreshWidget} syncStatus={widgetStatus} />}
             <button className="settings-toggle-card" onClick={() => void addWidget()} disabled={widgetBusy}>
               <span className="settings-icon"><Icon name="calendar" /></span>
               <span className="settings-toggle-copy"><strong>{widgetBusy ? '正在准备…' : '添加桌面小组件'}</strong><small>今天课程与下一节课 · 点击回到课织</small></span>

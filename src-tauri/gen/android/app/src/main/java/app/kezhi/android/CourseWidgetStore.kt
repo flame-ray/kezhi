@@ -5,6 +5,8 @@ import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Locale
 
+data class WidgetCacheReport(val state: String, val syncedAt: Long, val courses: List<WidgetCourse>)
+
 object CourseWidgetStore {
   private const val PREFS = "kezhi_course_widget"
   fun decode(content: String): List<WidgetCourse> {
@@ -36,4 +38,10 @@ object CourseWidgetStore {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("snapshot", null)?.let { decode(it) }
   } catch (_: Exception) { null }
   fun syncedAt(context: Context): Long = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong("syncedAt", 0)
+  @Synchronized fun inspect(context: Context): WidgetCacheReport {
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val content = prefs.getString("snapshot", null) ?: return WidgetCacheReport("missing", 0, emptyList())
+    return try { WidgetCacheReport("ready", prefs.getLong("syncedAt", 0), decode(content)) }
+      catch (_: Exception) { WidgetCacheReport("invalid", prefs.getLong("syncedAt", 0), emptyList()) }
+  }
 }

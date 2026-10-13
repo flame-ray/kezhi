@@ -27,6 +27,17 @@ class AppActionsPlugin(private val activity: Activity) : Plugin(activity) {
   private val worker = Executors.newSingleThreadExecutor()
 
   @Command
+  fun readCourseWidgetStatus(invoke: Invoke) {
+    worker.execute {
+      try {
+        val report = CourseWidgetDiagnostics.read(activity)
+        invoke.resolve(JSObject().apply { report.keys().forEach { key -> put(key, report.get(key)) } })
+      }
+      catch (error: Exception) { invoke.reject("无法读取小组件状态", error) }
+    }
+  }
+
+  @Command
   fun configureCourseWidget(invoke: Invoke) {
     activity.runOnUiThread {
       try { activity.startActivity(Intent(activity, CourseWidgetConfigureActivity::class.java)); invoke.resolve() }

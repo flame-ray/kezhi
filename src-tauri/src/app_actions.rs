@@ -5,6 +5,14 @@ use tauri::{plugin::{Builder, PluginHandle, TauriPlugin}, Manager, Runtime};
 struct AppActions<R: Runtime>(PluginHandle<R>);
 
 #[tauri::command]
+pub(crate) async fn read_course_widget_status(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    { tauri::async_runtime::spawn_blocking(move || app.state::<AppActions<tauri::Wry>>().0.run_mobile_plugin("readCourseWidgetStatus", ()).map_err(|error| error.to_string())).await.map_err(|error| error.to_string())? }
+    #[cfg(not(target_os = "android"))]
+    { let _ = app; Err("桌面小组件仅支持 Android".into()) }
+}
+
+#[tauri::command]
 pub(crate) async fn configure_course_widget(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "android")]
     { tauri::async_runtime::spawn_blocking(move || app.state::<AppActions<tauri::Wry>>().0.run_mobile_plugin::<()>("configureCourseWidget", ()).map_err(|error| error.to_string())).await.map_err(|error| error.to_string())? }

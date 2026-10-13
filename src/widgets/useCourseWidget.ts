@@ -17,11 +17,12 @@ export function useCourseWidget(enabled: boolean, courses: CourseMeeting[], cale
   latest.current = payload;
   const saved = useRef('');
   const queue = useRef<Promise<void>>(Promise.resolve());
-  const syncNow = useCallback(() => {
+  const syncNow = useCallback((force = false) => {
     const task = queue.current.catch(() => undefined).then(async () => {
       const current = latest.current;
       if (current.error || !current.content) throw new Error(current.error || '课表仍在加载，请稍后重试');
-      if (saved.current === current.content) { setStatus('桌面课表已同步'); return; }
+      if (!force && saved.current === current.content) { setStatus('桌面课表已同步'); return; }
+      setStatus('正在同步桌面课表…');
       try {
         await invoke('sync_course_widget', {content: current.content});
         saved.current = current.content;
@@ -49,5 +50,9 @@ export function useCourseWidget(enabled: boolean, courses: CourseMeeting[], cale
       ? '已请求添加，请在系统弹窗中确认；若未弹出，可长按桌面 → 小组件 → 课织。'
       : '请长按手机桌面空白处 → 小组件（或工具）→ 课织 → 今天与下一节课。';
   }, [enabled, syncNow]);
-  return {status, pin};
+  const refresh = useCallback(async () => {
+    if (!enabled) throw new Error('课表仍在加载，请稍后重试');
+    await syncNow(true);
+  }, [enabled, syncNow]);
+  return {status, pin, refresh};
 }

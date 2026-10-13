@@ -2023,7 +2023,7 @@ dependencies = [
 
 [[package]]
 name = "kezhi"
-version = "1.4.1"
+version = "1.4.2"
 dependencies = [
  "keyring-core",
  "reqwest 0.12.28",

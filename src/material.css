@@ -618,6 +618,18 @@ button:disabled:hover { transform: none; }
 .developer-contact-row strong { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
 .developer-contact-row button { flex-shrink: 0; }
 .contact-copy-status:empty { display: none; }
+.widget-status-panel { padding: 18px; margin-bottom: 16px; border-radius: 24px; background: var(--surface-soft); border: 1px solid var(--outline); color: var(--text); }
+.widget-status-panel header { display: flex; align-items: center; gap: 12px; }
+.widget-status-panel h3 { margin: 0 0 4px; font-size: 16px; }
+.widget-status-panel header small, .widget-status-panel dt { color: var(--muted); font-size: 12px; }
+.widget-status-summary { font-size: 15px; font-weight: 650; margin: 18px 0 12px; }
+.widget-status-panel dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 12px; margin: 0; padding: 14px; border-radius: 16px; background: var(--surface); }
+.widget-status-panel dd { margin: 5px 0 0; font-size: 13px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.widget-status-wide { grid-column: 1 / -1; }
+.widget-status-hint, .widget-status-footnote { display: block; color: var(--muted); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.widget-status-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 10px; }
+.widget-status-actions button { min-height: 44px; flex: 1 1 110px; justify-content: center; }
+.widget-status-actions button:disabled { opacity: .65; cursor: default; }
 @media print {
   :root .page-transition { display: block; height: auto; overflow: visible; }
   :root .material-backdrop, :root .material-snackbar { display: none !important; }
